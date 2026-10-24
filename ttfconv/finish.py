@@ -25,11 +25,23 @@ def fq4(W, g=64):
     return fqb(W, 4, g)
 
 
+def unique_sd(m):
+    """the state dict with each tensor once: ttf-ternary's Qwen wrapper keeps the decoder layers under two names
+    (.layers aliases .hf.model.layers), so every ternary layer appears twice (24 Oct: 2x sizes, a 2x state.pt)"""
+    seen, out = set(), {}
+    for k, v in m.state_dict().items():
+        key = (v.untyped_storage().data_ptr(), v.storage_offset(), tuple(v.shape)) if not v.is_meta else None
+        if key is not None and key in seen:
+            continue
+        seen.add(key); out[k] = v
+    return out
+
+
 def sizes(m):
     """bytes by group: trits (5 per byte), embedding / head 4-bit g64, other floats fp16"""
     hf = m.hf; by = {}
     emb, head = hf.model.embed_tokens.weight, hf.lm_head.weight
-    for k, v in m.state_dict().items():
+    for k, v in unique_sd(m).items():
         if v.is_meta:
             continue
         if k.endswith("wpacked"):
@@ -82,7 +94,7 @@ class Finish:
             res[name] = score(m, f, int(n), int(st), dev)
             log(f"ttfconv.finish eval {name}: {res[name]:.4f} ({n} windows)")
         json.dump(res, open(os.path.join(self.out, "result.json"), "w"), indent=1)
-        torch.save({"model": {k: v.cpu() for k, v in m.state_dict().items() if not v.is_meta}},
+        torch.save({"model": {k: v.cpu() for k, v in unique_sd(m).items() if not v.is_meta}},   # (load: strict=False)
                    os.path.join(self.out, "state.pt"))
         log("TTFCONV_FINISHED")
         if self.exit:

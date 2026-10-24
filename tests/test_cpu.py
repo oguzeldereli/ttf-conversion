@@ -105,3 +105,10 @@ def test_top_svd_rand_matches_full():
     _, S0, _ = top_svd(A, r, "full"); _, _, Vh = top_svd(A, r, "rand")
     assert Vh.shape == (r, 200)
     assert float(((A @ Vh.T) ** 2).sum()) / float((S0 ** 2).sum()) > 0.995
+
+
+def test_unique_sd_drops_aliases():
+    from ttfconv.finish import unique_sd
+    m = torch.nn.Module(); m.hf = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 2)); m.layers = m.hf
+    sd = unique_sd(m)
+    assert len(m.state_dict()) == 8 and sorted(sd) == ["hf.0.bias", "hf.0.weight", "hf.1.bias", "hf.1.weight"]

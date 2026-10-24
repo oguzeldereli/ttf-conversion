@@ -178,7 +178,8 @@ def main():
     print(f"after the block-local pass: wiki CE {after[0]:.4f} (pass 1 {base[0]:.4f}), KL to fp {after[1]:.4f} "
           f"(pass 1 {base[1]:.4f})", flush=True)
     json.dump({"args": vars(a), "pass1": base, "after": after, "blocks": rec}, open(os.path.join(a.out, "result.json"), "w"), indent=1)
-    torch.save({"model": {k: v.cpu() for k, v in m.state_dict().items() if not v.is_meta}}, os.path.join(a.out, "state.pt"))
+    from ttfconv.finish import unique_sd
+    torch.save({"model": {k: v.cpu() for k, v in unique_sd(m).items() if not v.is_meta}}, os.path.join(a.out, "state.pt"))
     print("BLOCKLOCAL_DONE", flush=True)
 
 
