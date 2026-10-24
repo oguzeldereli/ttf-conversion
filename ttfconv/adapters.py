@@ -8,7 +8,7 @@ metric H, D by GPTQ under H, U by least squares and GPTQ under D H D^T; with alt
 (D by least squares given the quantised U, then U again), the best kept.
 State-dict keys: .lin (the main ternary layer), .ad.0 (down), .ad.1 (up), .lin2 (T2).
 Needs the centred streaming conversion (--convert gptqc --convert-stream, the default): the fit runs in its hooks.
-  --ext ttfconv.adapters:rank=0.2,alt=1[,t2=0.229][,shrink=q_proj+in_proj_qkv+in_proj_z@0.05,boost=0-7][,ttf_rank=64]
+  --ext ttfconv.adapters:rank=0.2,alt=1[,t2=0.229][,shrink=q_proj+in_proj_qkv+in_proj_z@0.05,boost=0-7][,ttf_rank=64][,svd=rand]
 prop=1: calibration stream through the adapted layers (default 0, the wip behaviour).
 rank: an int, or a fraction of min(K, N) (rounded to a multiple of 8, at least 8). alt must be given (0 = the fit before
 23 Oct, 1 = recommended), so comparisons cannot change their fit silently.
@@ -76,8 +76,19 @@ def set_tern(l, T, a, c):
     l.row_scale.copy_(a / beta); l.col_scale.copy_(c)
 
 
+def top_svd(A, r, mode="full", over=None, niter=8):
+    """the top r singular triplets of A: the full SVD (mode full) or a randomized one (rand: Halko et al., r + over
+    columns, niter power iterations; torch.svd_lowrank)"""
+    if mode == "full":
+        U, S, Vh = torch.linalg.svd(A, full_matrices=False)
+        return U[:, :r], S[:r], Vh[:r]
+    q = min(r + (over if over is not None else max(16, r // 2)), *A.shape)
+    U, S, V = torch.svd_lowrank(A, q=q, niter=niter)
+    return U[:, :r], S[:r], V[:, :r].T
+
+
 @torch.no_grad()
-def fit_tadapt(ad, R, H, alt, ternarize, gptq, G=None):
+def fit_tadapt(ad, R, H, alt, ternarize, gptq, G=None, svd="full"):
     """down [r, K], up [N, r] ternary with R ~ up down in the output metric H (= L L^T); returns the relative error left
     and the per-round errors. G (N x N, optional): D's subspace from the SVD of L_G^T R L_H instead of R L_H, and the
     alternating refit of D weighted by G (the up factor's least squares does not depend on G)"""
@@ -85,14 +96,14 @@ def fit_tadapt(ad, R, H, alt, ternarize, gptq, G=None):
     Hd = H + 1e-6 * torch.diagonal(H).mean() * torch.eye(K, device=dev)
     Lc = torch.linalg.cholesky(Hd)
     if G is None:
-        U, S, Vh = torch.linalg.svd(R @ Lc, full_matrices=False)
+        U, S, Vh = top_svd(R @ Lc, r, svd)
     else:
         Gs = 0.5 * (G + G.T)                       # robust whitening: eigenvalues floored at 1e-3 of their mean
         ev, Q = torch.linalg.eigh(Gs.double())
         ev = ev.clamp_min(1e-3 * float(ev.clamp_min(0).mean()))
         Gd = (Q * ev) @ Q.T; Gd = Gd.float()
         LgT = (ev.sqrt()[:, None] * Q.T).float()   # L_G^T with L_G L_G^T = Gd
-        U, S, Vh = torch.linalg.svd(LgT @ R @ Lc, full_matrices=False)
+        U, S, Vh = top_svd(LgT @ R @ Lc, r, svd)
     Dt = torch.linalg.solve_triangular(Lc, S[:r].sqrt()[:, None] * Vh[:r], upper=False, left=False)   # (.) L^-1
     T, a, c = ternarize(Dt, "als"); T, a, c = gptq(Dt, H, a, c); set_tern(ad[0], T, a, c); tac_d = (T, a, c)
     Dq = a[:, None] * c[None, :] * T.float()
@@ -127,7 +138,11 @@ def fit_tadapt(ad, R, H, alt, ternarize, gptq, G=None):
 class Adapters:
     def __init__(self, spec):
         o = parse(spec, {"rank": "0.2", "t2": "0", "shrink": "", "boost": "", "prop": "0", "gmetric": "", "t2sel": "",
-                         "ttf_rank": ""}, required=("alt",))
+                         "ttf_rank": "", "svd": "full"}, required=("alt",))
+        # svd=rand: the adapter subspace from a randomized SVD (r + r/2 columns, 8 power iterations: 99.9% of the full
+        # SVD's top-r energy, the same fit error to +-0.001 on 0.8B layers; the full SVD was 47% of the 27B conversion)
+        self.svd = o["svd"]
+        assert self.svd in ("full", "rand"), self.svd
         # ttf_rank=R: the adapter factors' own TTF accumulator rank (the layers' ts_rank; needs ttf-ternary 359a098 or
         # later); empty: --ttf-rank, as the main layers
         self.ttf_rank = int(o["ttf_rank"]) if o["ttf_rank"] else None
@@ -187,10 +202,10 @@ class Adapters:
             T2, a2, c2 = ternarize(R, "als"); T2, a2, c2 = ternarize_gptq(R, Hc, a2, c2); set_tern(l2, T2, a2, c2)
             R2 = R - a2[:, None] * c2[None, :] * T2.float()
             e0 = float(((R @ Hc) * R).sum()); e2 = float(((R2 @ Hc) * R2).sum())
-            eA, h = fit_tadapt(q.ad, R2, Hc, self.alt, ternarize, ternarize_gptq, G)
+            eA, h = fit_tadapt(q.ad, R2, Hc, self.alt, ternarize, ternarize_gptq, G, self.svd)
             self.t2errs.append((e2 / e0, eA * e2 / e0)); self.errs.append(eA * e2 / e0)
         else:
-            eA, h = fit_tadapt(q.ad, R, Hc, self.alt, ternarize, ternarize_gptq, G)
+            eA, h = fit_tadapt(q.ad, R, Hc, self.alt, ternarize, ternarize_gptq, G, self.svd)
             self.errs.append(eA)
         self.alt_log.append(h)
         q.ad[0].enable_centering(mu, torch.zeros(q.ad[0].N, device=mu.device))

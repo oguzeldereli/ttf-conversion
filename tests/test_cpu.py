@@ -93,3 +93,15 @@ def test_embq_and_adapter_ttf_rank_specs():
     from ttfconv.adapters import ttf_ext as ad
     e = embq("emb=2,head=3"); assert (e.eb, e.hb, e.g) == (2, 3, 64)
     assert ad("rank=0.2,alt=1").ttf_rank is None and ad("rank=0.2,alt=1,ttf_rank=64").ttf_rank == 64
+
+
+def test_top_svd_rand_matches_full():
+    """svd=rand: the randomized top-r subspace keeps the full SVD's top-r energy (flat-ish spectrum, as a rounding
+    residual's)"""
+    from ttfconv.adapters import top_svd
+    torch.manual_seed(0)
+    A = torch.randn(300, 200) + torch.randn(300, 8) @ torch.randn(8, 200)
+    r = 40
+    _, S0, _ = top_svd(A, r, "full"); _, _, Vh = top_svd(A, r, "rand")
+    assert Vh.shape == (r, 200)
+    assert float(((A @ Vh.T) ** 2).sum()) / float((S0 ** 2).sum()) > 0.995
