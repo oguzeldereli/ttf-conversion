@@ -5,8 +5,11 @@
 `scripts/convert27.sh` runs the streaming conversion with the plug-ins and exits with `ttfconv.finish` (a state file
 and fixed-window scores). The structure:
 - the main ternary layer T1;
-- a second ternary layer T2 on 0.229 of the weights (the early FFNs);
-- r0.2 ternary adapters with one alternating refit, `prop=1` and fold a.
+- r0.2 ternary adapters with one alternating refit, `prop=1`, fold a and a randomized SVD (`svd=rand`).
+
+No second ternary layer (T2) by default: at 0.8B the same bytes spent as adapter rank did better (rank 0.4 without T2:
+−0.029 wiki training-free against T2 on 0.229 of the weights + rank 0.2), and T2 costs +37% time per 27B block.
+`T2=0.229` turns it back on.
 
 ```bash
 CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_conv Q4=0 \
@@ -27,7 +30,7 @@ CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_conv Q4=
 
 ```bash
 python -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --teacher $M --data DATA.bin --steps 2000 \
-  --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,t2=0.229,prop=1 --out-dir runs/q27
+  --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand --out-dir runs/q27
 ```
 
 The run converts first (streaming, layer by layer), then trains. Its checkpoints resume with `--resume` and the same
