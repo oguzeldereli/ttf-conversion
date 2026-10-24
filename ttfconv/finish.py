@@ -12,11 +12,17 @@ from .spec import parse
 
 
 @torch.no_grad()
-def fq4(W, g=64):
-    """4-bit asymmetric per group of g along each row (as pack_ttf.py's --emb_bits 4 --group 64): dequantized copy"""
+def fqb(W, bits, g=64):
+    """bits-bit asymmetric per group of g along each row (as pack_ttf.py's --emb_bits / --group): dequantized copy"""
+    L = 2 ** bits - 1
     Wf = W.float().reshape(W.shape[0], -1, g); lo = Wf.amin(-1, keepdim=True); hi = Wf.amax(-1, keepdim=True)
-    sc = ((hi - lo) / 15).clamp_min(1e-12); q = ((Wf - lo) / sc).round().clamp(0, 15)
+    sc = ((hi - lo) / L).clamp_min(1e-12); q = ((Wf - lo) / sc).round().clamp(0, L)
     return (q * sc + lo).reshape(W.shape).to(W.dtype)
+
+
+def fq4(W, g=64):
+    """4-bit groups of 64: the release pack's embedding / head"""
+    return fqb(W, 4, g)
 
 
 def sizes(m):

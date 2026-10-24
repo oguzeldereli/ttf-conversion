@@ -72,3 +72,24 @@ def test_adapter_fit_removes_energy():
         assert 0.0 < e < 1.0, e                      # a share of the residual's H-energy is left
         errs.append(e)
     assert errs[1] <= errs[0] + 1e-6                 # the alternating refit keeps the best round
+
+
+def test_fqb_levels_and_fq4():
+    """fqb: at most 2^bits values per group, the error shrinks with the bits; fq4 is fqb at 4 bits"""
+    from ttfconv.finish import fqb, fq4
+    torch.manual_seed(0)
+    W = torch.randn(32, 256)
+    errs = []
+    for b in (2, 3, 4):
+        Q = fqb(W, b)
+        assert max(len(torch.unique(r)) for r in Q.reshape(-1, 64)) <= 2 ** b
+        errs.append(float((Q - W).norm() / W.norm()))
+    assert errs[0] > errs[1] > errs[2]
+    assert torch.equal(fq4(W), fqb(W, 4))
+
+
+def test_embq_and_adapter_ttf_rank_specs():
+    from ttfconv.embq import ttf_ext as embq
+    from ttfconv.adapters import ttf_ext as ad
+    e = embq("emb=2,head=3"); assert (e.eb, e.hb, e.g) == (2, 3, 64)
+    assert ad("rank=0.2,alt=1").ttf_rank is None and ad("rank=0.2,alt=1,ttf_rank=64").ttf_rank == 64

@@ -8,7 +8,7 @@ metric H, D by GPTQ under H, U by least squares and GPTQ under D H D^T; with alt
 (D by least squares given the quantised U, then U again), the best kept.
 State-dict keys: .lin (the main ternary layer), .ad.0 (down), .ad.1 (up), .lin2 (T2).
 Needs the centred streaming conversion (--convert gptqc --convert-stream, the default): the fit runs in its hooks.
-  --ext ttfconv.adapters:rank=0.2,alt=1[,t2=0.229][,shrink=q_proj+in_proj_qkv+in_proj_z@0.05,boost=0-7]
+  --ext ttfconv.adapters:rank=0.2,alt=1[,t2=0.229][,shrink=q_proj+in_proj_qkv+in_proj_z@0.05,boost=0-7][,ttf_rank=64]
 prop=1: calibration stream through the adapted layers (default 0, the wip behaviour).
 rank: an int, or a fraction of min(K, N) (rounded to a multiple of 8, at least 8). alt must be given (0 = the fit before
 23 Oct, 1 = recommended), so comparisons cannot change their fit silently.
@@ -126,8 +126,11 @@ def fit_tadapt(ad, R, H, alt, ternarize, gptq, G=None):
 
 class Adapters:
     def __init__(self, spec):
-        o = parse(spec, {"rank": "0.2", "t2": "0", "shrink": "", "boost": "", "prop": "0", "gmetric": "", "t2sel": ""},
-                  required=("alt",))
+        o = parse(spec, {"rank": "0.2", "t2": "0", "shrink": "", "boost": "", "prop": "0", "gmetric": "", "t2sel": "",
+                         "ttf_rank": ""}, required=("alt",))
+        # ttf_rank=R: the adapter factors' own TTF accumulator rank (the layers' ts_rank; needs ttf-ternary 359a098 or
+        # later); empty: --ttf-rank, as the main layers
+        self.ttf_rank = int(o["ttf_rank"]) if o["ttf_rank"] else None
         # t2sel=FILE: the T2 linears chosen in the order of FILE (one name per line, e.g. by measured damage per byte,
         # tools/kfac.py) instead of the early FFNs, until the t2 share 
         self.t2sel = o["t2sel"]
@@ -149,11 +152,13 @@ class Adapters:
         for name in list(swapped):
             lin = swapped[name]; r = rk[name]; tot += lin.N * lin.K; ext += r * (lin.K + lin.N)
             q = QTad(lin, make_linear(lin.K, r).to(dev), make_linear(r, lin.N).to(dev))
+            if self.ttf_rank:
+                q.ad[0].ts_rank = q.ad[1].ts_rank = self.ttf_rank
             par, cn = name[len("model.layers."):].rsplit(".", 1)
             setattr(layers.get_submodule(par), cn, q)
             swapped[name] = q
         log(f"ttfconv.adapters (rank {self.rank}, alt {self.alt}): {ext / tot:+.1%} trits over one per weight "
-            f"({ext / 1e6:.1f} M extra)")
+            f"({ext / 1e6:.1f} M extra)" + (f"; adapter TTF rank {self.ttf_rank}" if self.ttf_rank else ""))
         if self.t2 > 0:     # the early FFNs (gate, up, down) in layer order until the share of the ternary weights
             acc = 0; sel = []
             order = ([l.strip() for l in open(self.t2sel) if l.strip() in swapped] if self.t2sel else
