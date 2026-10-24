@@ -62,11 +62,11 @@ class QTad(nn.Module):
             self.lin2 = lin2
         self.in_features, self.out_features = lin.K, lin.N
 
-    def forward(self, x):
+    def forward(self, x):    # (the sums go into each next layer's output as acc: one pass each with --fused-layer)
         y = self.lin(x)
         if getattr(self, "lin2", None) is not None:
-            y = y + self.lin2(x)
-        return y + self.ad[1](self.ad[0](x))
+            y = self.lin2(x, acc=y)
+        return self.ad[1](self.ad[0](x), acc=y)
 
 
 def set_tern(l, T, a, c):
