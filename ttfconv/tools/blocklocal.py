@@ -58,17 +58,15 @@ def main():
     from transformers import AutoModelForCausalLM
     from ttf.args import parse
     from ttf.layers import KernelTernaryLinear
-    from ttf.update import ts_layer, FIRE_FUSED
+    from ttf.update import ts_layer
     from ttf.qwen import layer_inputs
     # the trainer's TTF settings (convert-qwen recipe, theta / rank as given): ts_cfg as ttf/train.py builds it
     import sys
     argv0 = sys.argv; sys.argv = ["x", "--recipe", "convert-qwen", "--ttf-theta", str(a.theta), "--ttf-rank", str(a.rank)]
     targs = parse(); sys.argv = argv0
     cfg = dict(r=targs.ttf_rank, lr_ratio=1.0, theta=targs.ttf_theta, tau=targs.ttf_tau, b2=targs.ttf_b2,
-               spend=targs.ttf_spend, tau_anneal=(targs.ttf_leak_pow if targs.ttf_leak == "annealed" else False),
-               store_a="", offload=False, theta_sched=None, progress=0.5, factored=targs.factored_k, step=10 ** 6,
+               spend=targs.ttf_spend, store_a="", offload=False, theta_sched=None, progress=0.5, factored=targs.factored_k, step=10 ** 6,
                start=0, vdiag=False, micro=1)
-    FIRE_FUSED[0] = targs.fire == "fused"
     sd = sdict(a.state); m = build(a.model, a.ext); prepare(m, sd); load(m, sd)
     for p in m.parameters():
         p.requires_grad_(False)
@@ -136,7 +134,7 @@ def main():
         for i_, mod in enumerate(terns):
             mod._ts_idx = 100000 + 100 * l + i_
             mod.on_grad = (lambda lay, g, _s=state: ts_layer(lay, g, _s, cfg))
-            mod.capture = not a.no_trits; mod.ts_micro = False
+            mod.capture = not a.no_trits
         fl = [p for n_, p in layer.named_parameters() if p.is_floating_point() and not n_.endswith("frozen_scale")]
         for p in fl:
             p.requires_grad_(not a.no_floats)

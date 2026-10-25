@@ -21,7 +21,7 @@ def build(model_path, exts):
     from ttf.qwen import build_qwen
     from ttf.layers import KernelTernaryLinear
     X.load(exts)
-    mk = lambda i, o: KernelTernaryLinear(i, o, 8, beta=True, int8=True, int8_dx=False)
+    mk = lambda i, o: KernelTernaryLinear(i, o, 8, beta=True)
     m, sw = build_qwen(model_path, "kernel", grad_checkpoint=False, device="cuda", make_linear=mk)
     for f in X.having("build"):
         sw = f(m, sw, mk, print)
