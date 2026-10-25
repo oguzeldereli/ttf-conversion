@@ -112,3 +112,25 @@ def test_unique_sd_drops_aliases():
     m = torch.nn.Module(); m.hf = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 2)); m.layers = m.hf
     sd = unique_sd(m)
     assert len(m.state_dict()) == 8 and sorted(sd) == ["hf.0.bias", "hf.0.weight", "hf.1.bias", "hf.1.weight"]
+
+
+def test_adapter_lin_rank():
+    """lin_rank=TYPES@R: the main (and T2) layers of those types get ts_rank R, the others and the factors keep none"""
+    import types
+    import torch.nn as nn
+    from ttfconv.adapters import ttf_ext as ad
+
+    class Lin(nn.Module):
+        def __init__(self, K, N):
+            super().__init__(); self.K, self.N = K, N; self.w = nn.Parameter(torch.zeros(1))
+
+    layer = nn.Module(); layer.mlp = nn.Module()
+    layer.mlp.down_proj, layer.mlp.gate_proj = Lin(96, 64), Lin(64, 96)
+    hf = nn.Module(); hf.model = nn.Module(); hf.model.layers = nn.ModuleList([layer])
+    model = nn.Module(); model.hf = hf
+    sw = {"model.layers.0.mlp.down_proj": layer.mlp.down_proj, "model.layers.0.mlp.gate_proj": layer.mlp.gate_proj}
+    out = ad("rank=8,alt=1,t2=0.5,lin_rank=down_proj@48").build(model, sw, lambda K, N: Lin(K, N), lambda m: None)
+    d, g = out["model.layers.0.mlp.down_proj"], out["model.layers.0.mlp.gate_proj"]
+    assert d.lin.ts_rank == 48 and d.lin2.ts_rank == 48          # (t2 0.5: the first FFN in name order, down_proj)
+    assert not hasattr(g.lin, "ts_rank") and not hasattr(d.ad[0], "ts_rank")
+    assert ad("rank=0.2,alt=1").lin_rank is None
