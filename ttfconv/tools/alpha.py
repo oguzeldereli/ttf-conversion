@@ -74,7 +74,7 @@ def main():
             row["kl"][str(al)] = kl_pass(hf, val, dev, ref)
         with torch.no_grad():
             l.weight.copy_(old)
-        k = row["kl"]; row["exp_0.1_to_1"] = float(np.log(k["1.0"] / k["0.1"]) / np.log(10)) if "0.1" in k else None
+        k = row["kl"]; row["exp_0.1_to_1"] = float(np.log(k["1.0"] / k["0.1"]) / np.log(10)) if {"0.1", "1.0"} <= set(k) else None
         print(f"{n[13:]}: KL {' '.join(f'{x}:{v:.5f}' for x, v in k.items())}  kfac {row['kfac1']:.5f} gn {row['gn1']:.5f}  "
               f"slope(log KL / log alpha) {row['exp_0.1_to_1']}  ({time.time() - t0:.0f} s)", flush=True)
         rows.append(row); json.dump(rows, open(a.out, "w"), indent=1)

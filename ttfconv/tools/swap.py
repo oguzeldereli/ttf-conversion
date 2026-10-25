@@ -47,6 +47,8 @@ def prepare(m, sd):
 def load(m, sd, keys=None):
     sub = sd if keys is None else {k: sd[k] for k in keys}
     missing, unexpected = m.load_state_dict(sub, strict=False)
+    if keys is None and missing:              # (a whole network that leaves weights as built would score the wrong model)
+        raise SystemExit(f"swap.load: {len(missing)} model keys not in the checkpoint, e.g. {missing[:4]}")
     for mod in m.modules():
         if hasattr(mod, "_invalidate"):
             mod._invalidate()
