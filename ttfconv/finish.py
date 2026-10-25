@@ -45,7 +45,7 @@ def sizes(m):
         if v.is_meta:
             continue
         if k.endswith("wpacked"):
-            g, b = ("trits2" if ".lin2." in k else "adapter trits" if ".ad." in k else "trits"), v.numel()
+            g, b = ("adapter trits" if ".ad." in k else "trits"), v.numel()
         elif k.endswith(("embed_tokens.weight", "lm_head.weight")):
             if k.endswith("lm_head.weight") and head is emb:
                 continue

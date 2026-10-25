@@ -7,9 +7,9 @@ and fixed-window scores). The structure:
 - the main ternary layer T1;
 - r0.2 ternary adapters with one alternating refit, `prop=1`, fold a and a randomized SVD (`svd=rand`).
 
-No second ternary layer (T2) by default: at 0.8B the same bytes spent as adapter rank did better (rank 0.4 without T2:
-−0.029 wiki training-free against T2 on 0.229 of the weights + rank 0.2), and T2 costs +37% time per 27B block.
-`T2=0.229` turns it back on.
+No second ternary layer (T2; removed from the code on 25 Oct): at 0.8B the same bytes spent as adapter rank did better
+(rank 0.4 without T2: −0.029 wiki training-free against T2 on 0.229 of the weights + rank 0.2), it costs +37% time per
+27B block, and in training it moved in lockstep with its main layer.
 
 ```bash
 CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_conv Q4=0 \
@@ -49,4 +49,4 @@ The full recipe has not been trained end to end at 27B yet.
 |---|---|---|
 | `prop=1` | −0.027 wiki | none |
 | `gmetric` (fp G) | −0.008 more | one backward pass of the fp model per calibration window; a streamed tool for 27B is not written yet |
-| T2 placed by measured damage | −0.07 training-free | one single-linear KL per linear (~400 streamed forwards) |
+| T2 placed by measured damage (T2 removed 25 Oct) | −0.07 training-free | one single-linear KL per linear (~400 streamed forwards) |

@@ -6,7 +6,7 @@ import torch
 
 from ttfconv.spec import parse
 from ttfconv.fold import hadamard, rand_orth, residual_q, fold_w
-from ttfconv.adapters import rank_of, abytes, plan_ranks
+from ttfconv.adapters import rank_of
 
 
 def test_spec_parse():
@@ -47,9 +47,6 @@ def test_ranks_and_bytes():
     assert rank_of(1024, 3584, 0.2) == 208            # 0.2 * 1024, a multiple of 8
     assert rank_of(64, 64, 0.01) == 8                 # at least 8
     assert rank_of(1024, 1024, 96) == 96              # an absolute rank
-    assert abytes(1024, 3584, 208) == 208 * 205 + 3584 * 42 + 2 * (2 * 208 + 1024 + 3584)
-    shapes = {"model.layers.0.self_attn.q_proj": (1024, 2048), "model.layers.5.mlp.up_proj": (1024, 3584)}
-    assert plan_ranks(shapes, "0.2") == {k: rank_of(K, N, "0.2") for k, (K, N) in shapes.items()}
 
 
 def test_adapter_fit_removes_energy():
@@ -114,8 +111,9 @@ def test_unique_sd_drops_aliases():
     assert len(m.state_dict()) == 8 and sorted(sd) == ["hf.0.bias", "hf.0.weight", "hf.1.bias", "hf.1.weight"]
 
 
-def test_adapter_lin_rank():
-    """lin_rank=TYPES@R: the main (and T2) layers of those types get ts_rank R, the others and the factors keep none"""
+def test_adapter_build():
+    """build wraps every swapped linear as lin + up(down) at the planned rank; ttf_rank goes to the factors only; the
+    removed options (t2, shrink, lin_rank: 25 Oct) are refused"""
     import types
     import torch.nn as nn
     from ttfconv.adapters import ttf_ext as ad
@@ -129,8 +127,11 @@ def test_adapter_lin_rank():
     hf = nn.Module(); hf.model = nn.Module(); hf.model.layers = nn.ModuleList([layer])
     model = nn.Module(); model.hf = hf
     sw = {"model.layers.0.mlp.down_proj": layer.mlp.down_proj, "model.layers.0.mlp.gate_proj": layer.mlp.gate_proj}
-    out = ad("rank=8,alt=1,t2=0.5,lin_rank=down_proj@48").build(model, sw, lambda K, N: Lin(K, N), lambda m: None)
+    out = ad("rank=8,alt=1,ttf_rank=4").build(model, sw, lambda K, N: Lin(K, N), lambda m: None)
     d, g = out["model.layers.0.mlp.down_proj"], out["model.layers.0.mlp.gate_proj"]
-    assert d.lin.ts_rank == 48 and d.lin2.ts_rank == 48          # (t2 0.5: the first FFN in name order, down_proj)
-    assert not hasattr(g.lin, "ts_rank") and not hasattr(d.ad[0], "ts_rank")
-    assert ad("rank=0.2,alt=1").lin_rank is None
+    assert (d.ad[0].K, d.ad[0].N, d.ad[1].K, d.ad[1].N) == (96, 8, 8, 64) and g.ad[0].N == 8
+    assert d.ad[0].ts_rank == d.ad[1].ts_rank == 4 and not hasattr(d.lin, "ts_rank")
+    assert layer.mlp.down_proj is d and not hasattr(d, "lin2")
+    for bad in ("t2=0.229", "shrink=q_proj@0.05", "lin_rank=down_proj@1024"):
+        with pytest.raises(SystemExit):
+            ad("rank=0.2,alt=1," + bad)

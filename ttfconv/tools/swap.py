@@ -80,7 +80,7 @@ def main():
     m = build(a.model, a.ext); prepare(m, S)
     keys = [k for k in S if k in T and S[k].shape == T[k].shape and not k.endswith("frozen_scale")]
     blk = lambda k: (re.search(r"model\.layers\.(\d+)\.", k) or [None, None])[1]
-    tern = lambda k: bool(re.search(r"\.(lin|ad\.\d|lin2)\.|_proj\.(wpacked|row_scale|col_scale|out_bias|in_mean)$", k))
+    tern = lambda k: bool(re.search(r"\.(lin|ad\.\d)\.|_proj\.(wpacked|row_scale|col_scale|out_bias|in_mean)$", k))
     nl = 1 + max(int(blk(k)) for k in keys if blk(k) is not None)
     floats = [k for k in keys if not tern(k) and "embed_tokens" not in k and "lm_head" not in k]
     res = {}

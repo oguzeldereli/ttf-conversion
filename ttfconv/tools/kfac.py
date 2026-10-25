@@ -11,7 +11,7 @@ From them, for E = centred-GPTQ rounding error of that linear alone:
        two-sided G (x) H metric
 Measured: for a spread of linears, the KL per token of the fp model with only that linear rounded, on held-out windows
 (P1: kfac should rank them, e_H should not). With --ckpt NAME=PATH (states of the same fold-a conversion, trained or
-not): per linear, D = effective trained weight (trits + adapters + T2) - fp weight, its kfac, benign ratio and size
+not): per linear, D = effective trained weight (trits + adapters) - fp weight, its kfac, benign ratio and size
 (P4a: reorganisation moves along flat directions iff benign << 1 and falls with training).
   python -m ttfconv.tools.kfac --model M --data data/broadqw_train.bin --val data/wikiqw_val.bin --fold a \
       --ckpt s500=store/cpufix/ckpt_tad.pt --out kfac.json
@@ -129,7 +129,7 @@ def lowrank_capture(R, G, H, r):
 
 @torch.no_grad()
 def eff_weight(sd, pre, dev):
-    """effective weight of a converted linear (trits x scales x beta, + adapter up @ down, + T2) from a state dict"""
+    """effective weight of a converted linear (trits x scales x beta, + adapter up @ down) from a state dict"""
     from ttf.kernel import unpack_rows, trit_beta
 
     def tern(p):
@@ -140,8 +140,6 @@ def eff_weight(sd, pre, dev):
     W = tern(base)
     if pre + ".ad.0.wpacked" in sd:
         W = W + tern(pre + ".ad.1") @ tern(pre + ".ad.0")
-    if pre + ".lin2.wpacked" in sd:
-        W = W + tern(pre + ".lin2")
     return W
 
 

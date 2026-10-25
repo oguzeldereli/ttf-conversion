@@ -11,7 +11,7 @@ This repository holds the conversion side as plug-ins for ttf-core's trainer (`-
 |---|---|
 | `ttfconv.fold[:q=had,seed=2110]` | folds the RMSNorm gains into the linears that read them and rotates the residual stream by one randomized Hadamard (exact, free at decode); the head is untied from the embedding |
 | `ttfconv.cd[:sweeps=8,tol=1e-4]` | coordinate descent on the trits after GPTQ |
-| `ttfconv.adapters:rank=R,alt=N[,t2=S][,prop=1][,gmetric=DIR][,t2sel=FILE]` | **ternary low-rank adapters**: `y = T(x−μ) + b + U·D(x−μ)`, with D and U ternary, each with its own scales, trained by TTF. Optionally a second ternary layer (T2) on a share S of the weights. |
+| `ttfconv.adapters:rank=R,alt=N[,prop=1][,gmetric=DIR][,svd=rand][,ttf_rank=R]` | **ternary low-rank adapters**: `y = T(x−μ) + b + U·D(x−μ)`, with D and U ternary, each with its own scales, trained by TTF. |
 | `ttfconv.finish:out=DIR[,eval=...][,q4=1]` | right after the conversion: the packed size, the embedding/head as 4-bit groups (`q4=1`), scores on fixed windows, `DIR/state.pt`; then exit |
 
 The adapters' options:
@@ -21,7 +21,11 @@ The adapters' options:
   will see.
 - `gmetric=DIR`: fit the adapter subspace in the output-sensitivity metric G⊗H instead of H alone (G from
   `ttfconv.tools.kfac --dump-g`).
-- `t2sel=FILE`: the order in which T2 is placed (e.g. by measured damage).
+- `svd=rand`: the adapter subspace by randomized SVD (the 27B default; the full SVD's fit to ±0.001).
+- `ttf_rank=R`: the adapter factors' own TTF accumulator rank.
+
+The second ternary layer (T2, `t2=`) was removed on 25 Oct: it moved in lockstep with its main layer, and the same bytes
+as adapter rank did better (the results below that use it are from the code before that date).
 
 The adapters are fitted inside the centred streaming conversion (`--convert gptqc`, the default with
 `--convert-stream`); the recipes here set it.

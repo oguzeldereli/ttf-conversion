@@ -4,7 +4,7 @@ Built on ttf-core through its plug-in interface (ttf/ext.py, --ext MODULE:SPEC),
 
   ttfconv.fold:q=had          the norm gains folded and one randomized Hadamard on the residual stream ("fold a")
   ttfconv.cd:sweeps=8         coordinate descent on the trits after GPTQ
-  ttfconv.adapters:rank=0.2,alt=1[,t2=0.229]   ternary low-rank adapters (+ a second ternary layer on the early FFNs)
+  ttfconv.adapters:rank=0.2,alt=1  ternary low-rank adapters
   ttfconv.finish:out=DIR      training-free size / eval / state right after the conversion, then exit
 
   python -m ttf.train --recipe convert-qwen --init-hf $M --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1 ...
