@@ -20,7 +20,6 @@ ttf-theta = 16
 kd-weight = 0.75
 loss-chunk = 512
 adapter-rank = 0
-head-fused = true
 ckpt-skip = 3
 eval-interval = 100
 eval-iters = 8

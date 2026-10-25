@@ -25,8 +25,7 @@ CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_conv Q4=
 - accumulator rank 1024 with the state in host memory;
 - KD from the online teacher where it fits (96 GB cards); otherwise from a cached teacher top-k (ttf-core
   `scripts/quant/teacher_topk.py`). At 0.8B the cache cost +0.014 wiki at k64 and +0.037 at k32 after 1k steps;
-- 1 × 16 micro-batches of 2048 tokens;
-- `--head-fused`.
+- 1 × 16 micro-batches of 2048 tokens (the fused head loss is always on in the current core).
 
 ```bash
 python -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --teacher $M --data DATA.bin --steps 2000 \
