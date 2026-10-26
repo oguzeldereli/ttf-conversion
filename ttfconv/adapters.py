@@ -30,6 +30,8 @@ class QTad(nn.Module):
 
     def forward(self, x):    # (the sum goes into the up layer's output as acc: one pass with --fused-layer)
         y = self.lin(x)
+        if getattr(self, "ad_off", False):    # (ttfconv.adapter_ctl mode=off)
+            return y
         return self.ad[1](self.ad[0](x), acc=y)
 
 

@@ -135,3 +135,34 @@ def test_adapter_build():
     for bad in ("t2=0.229", "shrink=q_proj@0.05", "lin_rank=down_proj@1024"):
         with pytest.raises(SystemExit):
             ad("rank=0.2,alt=1," + bad)
+
+
+def test_adapter_ctl():
+    """adapter_ctl: frozen marks both factors ts_frozen with no trainable parameters, the main layer untouched; off also
+    takes the adapters out of the forward; the plug-in is not structural (no build: the checkpoint's --ext list holds)"""
+    import torch.nn as nn
+    from ttfconv.adapters import QTad
+    from ttfconv.adapter_ctl import ttf_ext as ctl
+
+    class Lin(nn.Module):
+        def __init__(self, K, N):
+            super().__init__(); self.K, self.N = K, N; self.w = nn.Parameter(torch.randn(N, K))
+
+        def forward(self, x, acc=None):
+            y = x @ self.w.T
+            return y if acc is None else acc + y
+
+    for mode in ("frozen", "off"):
+        torch.manual_seed(0)
+        q = QTad(Lin(16, 12), Lin(16, 4), Lin(4, 12)); m = nn.Sequential(q)
+        x = torch.randn(3, 16)
+        y0 = q(x)
+        c = ctl(f"mode={mode}")
+        assert not hasattr(c, "build")
+        c.setup(m, lambda s: None)
+        assert all(l.ts_frozen and not l.w.requires_grad for l in q.ad) and q.lin.w.requires_grad
+        assert not hasattr(q.lin, "ts_frozen")
+        y = q(x)
+        assert torch.equal(y, y0 if mode == "frozen" else q.lin(x))
+    with pytest.raises(AssertionError):
+        ctl("mode=fast")
