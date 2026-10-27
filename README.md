@@ -12,6 +12,8 @@ This repository holds the conversion side as plug-ins for ttf-core's trainer (`-
 | `ttfconv.fold[:q=had,seed=2110]` | folds the RMSNorm gains into the linears that read them and rotates the residual stream by one randomized Hadamard (exact, free at decode); the head is untied from the embedding |
 | `ttfconv.cd[:sweeps=8,tol=1e-4]` | coordinate descent on the trits after GPTQ |
 | `ttfconv.adapters:rank=R,alt=N[,prop=1][,gmetric=DIR][,svd=rand][,ttf_rank=R]` | **ternary low-rank adapters**: `y = T(x−μ) + b + U·D(x−μ)`, with D and U ternary, each with its own scales, trained by TTF. |
+| `ttfconv.embq:emb=E,head=H[,g=64]` | the frozen embedding / head at E / H bits in groups of g, before training (so the body trains around their error) |
+| `ttfconv.adapter_ctl:mode=frozen\|off` | training only: the adapters kept at their conversion fit, or taken out of the forward (for ablations from one converted start) |
 | `ttfconv.finish:out=DIR[,eval=...][,q4=1]` | right after the conversion: the packed size, the embedding/head as 4-bit groups (`q4=1`), scores on fixed windows, `DIR/state.pt`; then exit |
 
 The adapters' options:
@@ -91,8 +93,8 @@ After 1000 recovery steps (θ16, accumulator rank 256, KD 0.75, 32k tokens per s
 ## Qwen3.8-27B
 
 See [docs/CONVERT_27B.md](docs/CONVERT_27B.md). The conversion streams one decoder layer at a time from the safetensors.
-Recovery training of the adapter structure fits a 24 GB card: we measured a 21.7 GiB peak with the TTF state in host
-memory.
+`recipes/qwen-27b.toml` is the recovery run on two 96 GB cards (rank 1536, 27.0 s per step as a two-stage pipeline);
+with the TTF state in host memory the structure also trains on a 24 GB card (21.7 GiB peak measured at rank 256).
 
 ## Tools (`ttfconv/tools`)
 

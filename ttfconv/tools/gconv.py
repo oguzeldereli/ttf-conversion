@@ -60,8 +60,7 @@ def main():
         torch.cuda.empty_cache()
     eh.remove()
     open(os.path.join(a.dump_g, "done"), "w").close()
-    G = names; cnt = {"n": ntok}
-    print(f"gconv: {len(G)} G matrices from {cnt['n']} tokens in {time.time() - t0:.0f} s -> {a.dump_g}", flush=True)
+    print(f"gconv: {len(names)} G matrices from {ntok} tokens in {time.time() - t0:.0f} s -> {a.dump_g}", flush=True)
 
 
 if __name__ == "__main__":
