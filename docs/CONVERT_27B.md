@@ -30,14 +30,18 @@ CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_conv Q4=
   and +0.037 at k32 after 1k steps;
 - 1 × 16 micro-batches of 2048 tokens, one pipeline stage per GPU (`--pipe`, under torchrun).
 
+A pipelined run does not convert on the fly: convert first to a training checkpoint (one GPU), then start from it.
+
 ```bash
-torchrun --nproc_per_node 2 -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --data DATA.bin --pipe \
-  --kd-cache KD_DIR --steps 7750 --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand --out-dir runs/q27
+CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_start START=1 CAP=90 bash scripts/convert27.sh
+torchrun --nproc_per_node 2 -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --init-ckpt runs/q27_start/ckpt.pt \
+  --resume --data DATA.bin --pipe --kd-cache KD_DIR --steps 7750 \
+  --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand --out-dir runs/q27
 ```
 
 On 24–48 GB cards use `--ttf-store fp12s --ttf-offload async` (the state in host memory) and a lower `--ttf-rank`.
 
-The run converts first (streaming, layer by layer), then trains. Its checkpoints resume with `--resume` and the same
+Without `--pipe` a run can also convert itself first (streaming, layer by layer), then train. Its checkpoints resume with `--resume` and the same
 `--ext` list. `ttfconv.finish`'s `state.pt` is for scoring and packing, not a training checkpoint.
 
 Measured so far:

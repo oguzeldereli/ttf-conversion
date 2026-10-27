@@ -9,8 +9,9 @@
 # Smaller cards (24-48 GB): --ttf-store fp12s --ttf-offload async (the state in host memory) and a lower --ttf-rank; the
 # conversion structure trained at a 21.7 GiB peak with r256 that way (L40S). Where the bf16 teacher (~54 GB) fits beside
 # the student, --teacher M instead of the cache (at 0.8B the online teacher beat a cached top-k by 0.014 wiki at k64).
-#   torchrun --nproc_per_node 2 -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --data DATA.bin --pipe \
-#     --kd-cache KD_DIR --steps 7750 --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand --out-dir runs/q27
+# A --pipe run starts from a converted checkpoint (scripts/convert27.sh with START=1; docs/CONVERT_27B.md):
+#   torchrun --nproc_per_node 2 -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --init-ckpt START/ckpt.pt --resume \
+#     --data DATA.bin --pipe --kd-cache KD_DIR --steps 7750 --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand --out-dir runs/q27
 mode = "ttf"
 convert = "gptqc"
 convert-stream = true

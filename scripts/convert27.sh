@@ -10,8 +10,10 @@
 # Not included (cost at 27B, see docs/CONVERT_27B.md): gmetric (needs G from a backward of the 27B fp model, streamed).
 # Ends in ttfconv.finish: the packed size, the 4-bit embedding / head (q4=1: the release pack; q4=0 for a training
 # start), the fixed windows scored, OUT/state.pt.
+# START=1 instead: no finish; the converted network saved as a step -1 training checkpoint, OUT/ckpt.pt, which a
+# training run starts from with --init-ckpt (a --pipe run must: it does not convert on the fly).
 #   CORE=... CONV=... M=models/qw27 DATA=data/mix5b_cal.bin OUT=runs/q27_conv_v3 EVAL="wiki@data/wikiq27_eval27.bin@16@2049" \
-#     [Q4=0] [ALT=1] [PROP=1] [ADR=0.2] [CD=0] [SVD=rand] [EMBQ=2,3] [ADTTF=R] bash scripts/convert27.sh
+#     [Q4=0] [ALT=1] [PROP=1] [ADR=0.2] [CD=0] [SVD=rand] [EMBQ=2,3] [ADTTF=R] [START=1] [CAP=22.4] bash scripts/convert27.sh
 set -eu
 CORE=${CORE:?}; CONV=${CONV:-$(cd "$(dirname "$0")/.." && pwd)}; M=${M:?}; DATA=${DATA:?}; OUT=${OUT:?}
 PY=${PY:-python}; ALT=${ALT:-1}; PROP=${PROP:-1}; ADR=${ADR:-0.2};   # (ADR, not RANK: RANK is torch.distributed's)
@@ -23,9 +25,14 @@ EXT=(--ext ttfconv.fold)
 AD=rank=$ADR,alt=$ALT,prop=$PROP,svd=$SVD; [ -n "$ADTTF" ] && AD=$AD,ttf_rank=$ADTTF
 EXT+=(--ext ttfconv.adapters:$AD)
 [ -n "$EMBQ" ] && EXT+=(--ext ttfconv.embq:emb=${EMBQ%,*},head=${EMBQ#*,})
-FIN="ttfconv.finish:out=$OUT,q4=$Q4"; [ -n "$EVAL" ] && FIN="$FIN,eval=$EVAL"
-EXT+=(--ext "$FIN")
 mkdir -p $OUT
 cd $CORE
+if [ "${START:-0}" = 1 ]; then
+  env PYTHONPATH=$CORE:$CONV $PY -m ttf.train --recipe $CONV/recipes/qwen-27b.toml --init-hf $M --data $DATA --kd-weight 0 \
+    --teacher "" --ttf-theta 1000000 --steps 1 --stop-after 0 --mem-cap-gib ${CAP:-22.4} "${EXT[@]}" --out-dir $OUT 2>&1 | tee $OUT/convert.log
+  exit
+fi
+FIN="ttfconv.finish:out=$OUT,q4=$Q4"; [ -n "$EVAL" ] && FIN="$FIN,eval=$EVAL"
+EXT+=(--ext "$FIN")
 env PYTHONPATH=$CORE:$CONV $PY -m ttf.train --recipe $CONV/recipes/qwen-27b.toml --init-hf $M --data $DATA --kd-weight 0 \
   --teacher "" --ttf-theta 1000000 --steps 1000 --mem-cap-gib ${CAP:-22.4} "${EXT[@]}" --out-dir ${OUT}_run 2>&1 | tee $OUT/convert.log
