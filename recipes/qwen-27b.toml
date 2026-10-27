@@ -1,7 +1,8 @@
 # Qwen3.8-27B -> ternary (T1) + r0.2 ternary adapters (no T2: the same bytes as adapter rank did better), then TTF
 # recovery with distillation. These are the settings of the 27B recovery run started 26 Oct 2026 on 2 x RTX PRO 6000
 # (96 GB): accumulator rank 1536 (30% of the width; 1024 / 1536 / 2048 measured at 47.5 / 54.3 / 59.8 s per step on one
-# card), theta 16, the state in bf16 on the GPU, the embedding / head as trained 2- / 3-bit integer codes, KD from a
+# card), theta 16, the state in bf16 on the GPU, the embedding / head as 2- / 3-bit integer codes (their group minima
+# and steps trained; the codes' bar theta / emb-lr-mult = 320 is not reached, so the codes keep their rounding), KD from a
 # cached teacher sample (kd-cache-mode sample). The run added on its command line: --pipe (one pipeline stage per GPU,
 # torchrun), --kd-cache DIR, --ckpt-skip 15, --steps 7750. Set --steps to what the run will reach, so the learning-rate
 # schedule completes.

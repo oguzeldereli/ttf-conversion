@@ -23,7 +23,8 @@ CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_conv Q4=
 `recipes/qwen-27b.toml` holds the settings of the 27B recovery run started on 26 Oct 2026 (2 × RTX PRO 6000, 96 GB):
 - centred GPTQ start, θ16;
 - accumulator rank 1536 (30% of the width), the TTF state in bf16 on the GPU;
-- the embedding and head as trained 2- / 3-bit integer codes (`intk-emb = "2:3"`);
+- the embedding and head as 2- / 3-bit integer codes (`intk-emb = "2:3"`): their group minima and steps train; the
+  codes' own bar, θ / `emb-lr-mult` = 320, is not reached (no code moved in 1000 steps at 0.8B);
 - KD 0.75 from a cached teacher sample (ttf-core `scripts/quant/teacher_topk.py`; `kd-cache-mode = "sample"`). Where the
   bf16 teacher (~54 GB) fits beside the student, `--teacher M` instead: at 0.8B a cached top-k cost +0.014 wiki at k64
   and +0.037 at k32 after 1k steps;
