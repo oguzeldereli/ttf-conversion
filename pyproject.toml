@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ttf-conversion"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convert full-precision Qwen3.5 / 3.8 models into ternary networks that TTF (ttf-ternary) keeps training"
 license = {file = "LICENSE"}
 authors = [{name = "Özgür Güzeldereli"}]
 requires-python = ">=3.11"
-dependencies = ["ttf-ternary[qwen]", "torch>=2.13", "numpy"]
+dependencies = ["ttf-ternary[qwen]>=0.2.0", "torch>=2.13", "numpy"]
 
 [project.optional-dependencies]
 tools = ["scipy"]          # ttfconv.tools.kfac_report

@@ -4,7 +4,7 @@ Convert a full-precision Qwen3.5 / Qwen3.8 model into a **ternary** network: wei
 column scales, optionally with low-rank adapters and a fine residual of extra digits. The conversion is its own code
 base. It builds its models with [ttf-core](https://github.com/oguzeldereli/ttf-ternary) (the Qwen wrapper, the packed
 ternary layers and kernels) and writes checkpoints that ttf-core's trainer can start from (`--init-ckpt`), but none of
-the conversion lives in ttf-core.
+the conversion lives in ttf-core. It needs ttf-core v0.2.0 or later (the release without the conversion: `--arch-hf`, `ttf.hf_load`).
 
 Entry point:
 
