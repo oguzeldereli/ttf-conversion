@@ -1,6 +1,6 @@
 """Converting a Llama-style HF checkpoint (the 110M models) into ttf-core's BitTransformer: the calibration second
 moments of the fp model, then every linear rounded (ALS, GPTQ or centred GPTQ) into its KernelTernaryLinear. Moved out
-of ttf-core (ttf/hf_init.py calib_hessians / init_from_hf, d5f6256) on 28 Oct 2026; ttf-core keeps the fp-only loader
+of ttf-core (ttf/hf_init.py calib_hessians / init_from_hf, 0ef62dd) on 28 Oct 2026; ttf-core keeps the fp-only loader
 (ttf.hf_load.load_hf_fp). The computation is unchanged; the float adapters' fit is returned instead of parked on the
 layers."""
 import numpy as np

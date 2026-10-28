@@ -1,6 +1,6 @@
 """Rounding a float weight onto the ternary grid W ~ a_i c_j T_ij: ALS (row / column scales by alternating least
 squares), GPTQ (Frantar et al. 2022) onto the ternary grid under the layer's input second moment, and the rank-R fit of
-the rounding error for the float adapters. Moved here from ttf-core (ttf/hf_init.py, d5f6256) on 28 Oct 2026 when the
+the rounding error for the float adapters. Moved here from ttf-core (ttf/hf_init.py, 0ef62dd) on 28 Oct 2026 when the
 conversion left the core; the code is unchanged except mag_svd_fit, which returns its factors instead of parking them
 on the layer."""
 import torch

@@ -1,6 +1,6 @@
 """The sequential, layer-by-layer conversion of a Qwen3.5 / 3.8 model built by ttf-core (ttf.qwen.build_qwen, kernel
 mode) for models that do not fit as a whole in full precision (27B). Moved out of ttf-core (ttf/qwen.py,
-convert_qwen_streaming, d5f6256 + the --fine residual of squeeze/2026-10-27) on 28 Oct 2026; the computation is the
+convert_qwen_streaming, 0ef62dd + the --fine residual of squeeze/2026-10-27) on 28 Oct 2026; the computation is the
 same, the plug-ins are passed in instead of read from ttf.ext and the options are arguments.
 
 Plug-ins (ttfconv.fold / cd / adapters / embq objects) may define, all optional:

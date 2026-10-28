@@ -79,7 +79,7 @@ data: `--data-dtype u16`); it trains with `ttf.train --arch-hf $M --init-ckpt OU
 
 `scripts/analysis` and `scripts/quant` hold the conversion studies that left ttf-core on 28 Oct 2026; they find
 ttf-core through `$TTF_CORE` (default `../ttf-core`). `scripts/legacy` keeps three Qwen checks that need ttf-core
-d5f6256 (see its README).
+0ef62dd (see its README).
 
 A checkpoint converted with `--fine` carries the extra digits; it loads with `ttfconv.model.load_converted`, not in
 ttf-core's trainer.
