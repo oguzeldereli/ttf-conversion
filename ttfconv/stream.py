@@ -172,12 +172,16 @@ def convert_streaming(m, path, swapped, data_path, plugins=(), method="gptqc", n
                 for f_ in having(plugins, "fitted"):    # e.g. adapters fitted to what the trits left (the layer written)
                     f_(n, wrapped.get(n, lin), W, Hc_, mu, T, a, c)
             fit = None
-            if svd_rank and method in ("gptq", "gptqc"):          # the float adapter: the rounding error's best rank-R part
-                fit, sh = mag_svd_fit(W, T, a, c, beta, Hc_, svd_rank)
+            q_ = wrapped.get(n)
+            Wl = W if getattr(q_, "_ad_dense", None) is None else W - q_._ad_dense   # less what a ternary adapter adds
+            if q_ is not None and hasattr(q_, "_ad_dense"):
+                del q_._ad_dense
+            if svd_rank and method in ("gptq", "gptqc"):          # the float adapter: the best rank-R part of the
+                fit, sh = mag_svd_fit(Wl, T, a, c, beta, Hc_, svd_rank)   # rounding error the trits (and adapter) left
                 fits[n] = fit; kept.append(sh)
-            if fine:                                    # what the trits and the adapter left, onto the fine grid
+            if fine:                                    # what the trits and the adapters left, onto the fine grid
                 from .fine import gptq_fine
-                E_ = W - a[:, None] * c[None, :] * T.float()
+                E_ = Wl - a[:, None] * c[None, :] * T.float()
                 if fit is not None:
                     E_ -= (a / beta)[:, None] * (fit[0].to(dev) @ fit[1].to(dev).T) * c[None, :]
                 F_, fe_ = gptq_fine(E_, Hc_, a, c, lin.fine_R)
@@ -187,7 +191,7 @@ def convert_streaming(m, path, swapped, data_path, plugins=(), method="gptqc", n
             # the calibration stream goes on through the bare ternary layer, unless a plug-in asks for the whole wrapper
             # (propagate_wrapped: the layers above are then rounded for the inputs they will see)
             setattr(parent, n.rsplit(".", 1)[1], wrapped[n] if n in wrapped and prop_w else lin)
-            del W, Hl, T, Hc_
+            del W, Wl, Hl, T, Hc_
         del fp, Hs, Ss
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):   # on through the converted layer
             H_in = [(lambda o: o[0] if isinstance(o, tuple) else o)(layer(h, **kw)) for h in H_in]

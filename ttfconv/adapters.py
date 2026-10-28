@@ -43,6 +43,14 @@ def set_tern(l, T, a, c):
     l.row_scale.copy_(a / beta); l.col_scale.copy_(c)
 
 
+def dense(l):
+    """a ternary layer's weight as it computes it: row beta T col (float32)"""
+    from ttf.kernel import unpack_rows, trit_beta
+    T = unpack_rows(l.wpacked, l.K).float()
+    beta = float(trit_beta(l.wpacked, l.K)) if l.use_beta else 1.0
+    return (l.row_scale.float() * beta)[:, None] * T * l.col_scale.float()[None, :]
+
+
 def top_svd(A, r, mode="full", over=None, niter=8):
     """the top r singular triplets of A: the full SVD (mode full) or a randomized one (rand: Halko et al., r + over
     columns, niter power iterations; torch.svd_lowrank)"""
@@ -149,6 +157,8 @@ class Adapters:
         eA, h = fit_tadapt(q.ad, R, Hc, self.alt, ternarize, ternarize_gptq, G, self.svd)
         self.errs.append(eA); self.alt_log.append(h)
         q.ad[0].enable_centering(mu, torch.zeros(q.ad[0].N, device=mu.device))
+        q._ad_dense = dense(q.ad[1]) @ dense(q.ad[0])   # what the adapter adds in W's space: the conversion's later fits
+        # (the float adapter, the fine residual) take what the trits and this adapter left (ttfconv.stream)
 
     def end(self, model, log):
         n_ad = sum(isinstance(q, QTad) for q in model.modules())
