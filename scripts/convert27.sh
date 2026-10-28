@@ -1,38 +1,29 @@
 #!/bin/bash
-# Qwen3.8-27B conversion with the ttfconv plug-ins: fold a, r0.2 ternary adapters, centred GPTQ
-# (recipes/qwen-27b.toml: convert = gptqc, the adapters' fit needs it), streamed layer by layer from the safetensors on
-# one 24-48 GB GPU, with the training-free fixes that need no extra pass at 27B:
-#   prop=1   the calibration stream through the adapted layers (0.8B: -0.10 nats on all three sets)
-#   alt=1    one alternating refit round of the adapters (0.8B: -0.024 training-free, 3 rounds; -0.008 after 1k)
-#   svd=rand the adapters' subspace by randomized SVD (the full SVD was 47% of the 24 Oct L40S conversion, 4.7 s per
-#            call; same fit error to +-0.001 on 0.8B layers). SVD=full: the old fit
-# EMBQ=2,3: embedding 2-bit / head 3-bit (ttfconv.embq) before training; use with Q4=0.
-# Not included (cost at 27B, see docs/CONVERT_27B.md): gmetric (needs G from a backward of the 27B fp model, streamed).
-# Ends in ttfconv.finish: the packed size, the 4-bit embedding / head (q4=1: the release pack; q4=0 for a training
-# start), the fixed windows scored, OUT/state.pt.
-# START=1 instead: no finish; the converted network saved as a step -1 training checkpoint, OUT/ckpt.pt, which a
-# training run starts from with --init-ckpt (a --pipe run must: it does not convert on the fly).
-#   CORE=... CONV=... M=models/qw27 DATA=data/mix5b_cal.bin OUT=runs/q27_conv_v3 EVAL="wiki@data/wikiq27_eval27.bin@16@2049" \
-#     [Q4=0] [ALT=1] [PROP=1] [ADR=0.2] [CD=0] [SVD=rand] [EMBQ=2,3] [ADTTF=R] [START=1] [CAP=22.4] bash scripts/convert27.sh
+# Qwen3.8-27B conversion (python -m ttfconv.convert): fold a, centred GPTQ, streamed layer by layer from the safetensors
+# on one 24-96 GB GPU. Two structures:
+#   default        r0.2 ternary adapters (ttfconv.adapters) with the training-free fixes that need no extra pass:
+#                    prop=1   the calibration stream through the adapted layers (0.8B: -0.10 nats on all three sets)
+#                    alt=1    one alternating refit round of the adapters
+#                    svd=rand the adapters' subspace by randomized SVD (same fit error to +-0.001 on 0.8B layers)
+#   SVD=R          instead: rank-R float adapters from the rounding error's SVD (no ternary adapters)
+#   FINE=27        the fine residual of what the trits and the adapters left (the extra digits; ttfconv.fine)
+# EMBQ=2,3: embedding 2-bit / head 3-bit (ttfconv.embq) at the end of the conversion.
+# Output: OUT/ckpt.pt (a ttf-core checkpoint, step -1: a training run starts from it with --init-ckpt) and
+# OUT/result.json (sizes, errors, EVAL scores).
+#   CORE=... CONV=... M=models/qw27 DATA=data/mix5b_cal.bin OUT=runs/q27_conv EVAL="wiki@data/wikiq27_eval27.bin@16@2049" \
+#     [ALT=1] [PROP=1] [ADR=0.2] [CD=0] [SVDA=rand] [SVD=R] [FINE=27] [EMBQ=2,3] [ADTTF=R] [CALIB=64] bash scripts/convert27.sh
 set -eu
 CORE=${CORE:?}; CONV=${CONV:-$(cd "$(dirname "$0")/.." && pwd)}; M=${M:?}; DATA=${DATA:?}; OUT=${OUT:?}
-PY=${PY:-python}; ALT=${ALT:-1}; PROP=${PROP:-1}; ADR=${ADR:-0.2};   # (ADR, not RANK: RANK is torch.distributed's)
- CD=${CD:-0}; Q4=${Q4:-1}
-SVD=${SVD:-rand}; EMBQ=${EMBQ:-}; ADTTF=${ADTTF:-}
-EVAL=${EVAL:-}
+PY=${PY:-python}; ALT=${ALT:-1}; PROP=${PROP:-1}; ADR=${ADR:-0.2}; CD=${CD:-0}
+SVDA=${SVDA:-rand}; SVD=${SVD:-0}; FINE=${FINE:-0}; EMBQ=${EMBQ:-}; ADTTF=${ADTTF:-}; EVAL=${EVAL:-}; CALIB=${CALIB:-64}
 EXT=(--ext ttfconv.fold)
 [ "$CD" != 0 ] && EXT+=(--ext ttfconv.cd:sweeps=$CD)
-AD=rank=$ADR,alt=$ALT,prop=$PROP,svd=$SVD; [ -n "$ADTTF" ] && AD=$AD,ttf_rank=$ADTTF
-EXT+=(--ext ttfconv.adapters:$AD)
-[ -n "$EMBQ" ] && EXT+=(--ext ttfconv.embq:emb=${EMBQ%,*},head=${EMBQ#*,})
-mkdir -p $OUT
-cd $CORE
-if [ "${START:-0}" = 1 ]; then
-  env PYTHONPATH=$CORE:$CONV $PY -m ttf.train --recipe $CONV/recipes/qwen-27b.toml --init-hf $M --data $DATA --kd-weight 0 \
-    --teacher "" --ttf-theta 1000000 --steps 1 --stop-after 0 --mem-cap-gib ${CAP:-22.4} "${EXT[@]}" --out-dir $OUT 2>&1 | tee $OUT/convert.log
-  exit
+if [ "$SVD" = 0 ]; then
+  AD=rank=$ADR,alt=$ALT,prop=$PROP,svd=$SVDA; [ -n "$ADTTF" ] && AD=$AD,ttf_rank=$ADTTF
+  EXT+=(--ext ttfconv.adapters:$AD)
 fi
-FIN="ttfconv.finish:out=$OUT,q4=$Q4"; [ -n "$EVAL" ] && FIN="$FIN,eval=$EVAL"
-EXT+=(--ext "$FIN")
-env PYTHONPATH=$CORE:$CONV $PY -m ttf.train --recipe $CONV/recipes/qwen-27b.toml --init-hf $M --data $DATA --kd-weight 0 \
-  --teacher "" --ttf-theta 1000000 --steps 1000 --mem-cap-gib ${CAP:-22.4} "${EXT[@]}" --out-dir ${OUT}_run 2>&1 | tee $OUT/convert.log
+[ -n "$EMBQ" ] && EXT+=(--ext ttfconv.embq:emb=${EMBQ%,*},head=${EMBQ#*,})
+X=(--svd-rank $SVD --fine $FINE --calib $CALIB)
+[ -n "$EVAL" ] && X+=(--eval "$EVAL")
+mkdir -p $OUT
+env PYTHONPATH=$CORE:$CONV $PY -m ttfconv.convert --model $M --data $DATA --out $OUT "${EXT[@]}" "${X[@]}" 2>&1 | tee $OUT/convert.log

@@ -59,10 +59,10 @@ def main():
     from ttf.args import parse
     from ttf.layers import KernelTernaryLinear
     from ttf.update import ts_layer
-    from ttf.qwen import layer_inputs
+    from ttfconv.stream import layer_inputs
     # the trainer's TTF settings (convert-qwen recipe, theta / rank as given): ts_cfg as ttf/train.py builds it
     import sys
-    argv0 = sys.argv; sys.argv = ["x", "--recipe", "convert-qwen", "--ttf-theta", str(a.theta), "--ttf-rank", str(a.rank)]
+    argv0 = sys.argv; sys.argv = ["x", "--recipe", os.path.join(os.path.dirname(__file__), "..", "..", "recipes", "qwen-0.8b.toml"), "--ttf-theta", str(a.theta), "--ttf-rank", str(a.rank)]
     targs = parse(); sys.argv = argv0
     cfg = dict(r=targs.ttf_rank, lr_ratio=1.0, theta=targs.ttf_theta, tau=targs.ttf_tau, b2=targs.ttf_b2,
                spend=targs.ttf_spend, store_a="", offload=False, theta_sched=None, progress=0.5, factored=targs.factored_k, step=10 ** 6,

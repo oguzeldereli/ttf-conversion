@@ -1,20 +1,41 @@
 # ttf-conversion
 
-Convert a full-precision Qwen3.5 / Qwen3.8 model into a **ternary** network (weights in {−1, 0, +1} times row and column
-scales), then keep training it with [TTF](https://github.com/oguzeldereli/ttf-ternary). TTF trains the trits directly:
-there are no full-precision master weights, during conversion or afterwards, so a converted model can keep
-improving on a consumer GPU.
+Convert a full-precision Qwen3.5 / Qwen3.8 model into a **ternary** network: weights in {−1, 0, +1} times row and
+column scales, optionally with low-rank adapters and a fine residual of extra digits. The conversion is its own code
+base. It builds its models with [ttf-core](https://github.com/oguzeldereli/ttf-ternary) (the Qwen wrapper, the packed
+ternary layers and kernels) and writes checkpoints that ttf-core's trainer can start from (`--init-ckpt`), but none of
+the conversion lives in ttf-core.
 
-This repository holds the conversion side as plug-ins for ttf-core's trainer (`--ext MODULE:SPEC`):
+Entry point:
+
+```bash
+python -m ttfconv.convert --model M --data CAL.bin --out OUT [--ext PLUGIN[:SPEC] ...] [--svd-rank R] [--fine 27] \
+    [--method gptqc] [--calib 64] [--eval wiki@FILE@N@STRIDE]
+```
+
+It streams the model one decoder layer at a time from the safetensors: a layer's linears are calibrated on the inputs
+the already-converted layers below produce, then rounded (centred GPTQ by default). The output is `OUT/ckpt.pt` in
+ttf-core's checkpoint form, plus `OUT/result.json`.
+
+| module | what it does |
+|---|---|
+| `ttfconv.convert` | the command line above: build, convert, save, score |
+| `ttfconv.stream` | the layer-by-layer streaming conversion |
+| `ttfconv.gptq` | ALS rounding, GPTQ onto the ternary grid, the rank-R fit of the rounding error (float adapters) |
+| `ttfconv.fine` | the fine residual: `W = β(T + F/R)`, `F` int8 whose balanced-ternary digits are the extra digits; its layer (`FineTernaryLinear`), GEMMs and GPTQ fit |
+| `ttfconv.model` | `load_converted(arch, ckpt)`: a converted checkpoint back into a model (structure read from its keys) |
+| `ttfconv.finish` | sizes, 4-bit groups, fixed-window scoring |
+
+Plug-ins (`--ext`, in the order given; the same specs work for ttf-core's trainer, which uses only their structure):
 
 | plug-in | what it does |
 |---|---|
 | `ttfconv.fold[:q=had,seed=2110]` | folds the RMSNorm gains into the linears that read them and rotates the residual stream by one randomized Hadamard (exact, free at decode); the head is untied from the embedding |
 | `ttfconv.cd[:sweeps=8,tol=1e-4]` | coordinate descent on the trits after GPTQ |
-| `ttfconv.adapters:rank=R,alt=N[,prop=1][,gmetric=DIR][,svd=rand][,ttf_rank=R]` | **ternary low-rank adapters**: `y = T(x−μ) + b + U·D(x−μ)`, with D and U ternary, each with its own scales, trained by TTF. |
-| `ttfconv.embq:emb=E,head=H[,g=64]` | the frozen embedding / head at E / H bits in groups of g, before training (so the body trains around their error) |
-| `ttfconv.adapter_ctl:mode=frozen\|off` | training only: the adapters kept at their conversion fit, or taken out of the forward (for ablations from one converted start) |
-| `ttfconv.finish:out=DIR[,eval=...][,q4=1]` | right after the conversion: the packed size, the embedding/head as 4-bit groups (`q4=1`), scores on fixed windows, `DIR/state.pt`; then exit |
+| `ttfconv.adapters:rank=R,alt=N[,prop=1][,gmetric=DIR][,svd=rand][,ttf_rank=R]` | **ternary low-rank adapters**: `y = T(x−μ) + b + U·D(x−μ)`, with D and U ternary, each with its own scales |
+| `ttfconv.embq:emb=E,head=H[,g=64]` | the embedding / head at E / H bits in groups of g at the end of the conversion |
+| `ttfconv.adapter_ctl:mode=frozen\|off` | training only (ttf-core): the adapters kept at their conversion fit, or taken out of the forward |
+| `ttfconv.finish:out=DIR[,eval=...][,q4=1]` | (legacy, ttf-core's trainer before the split) size / eval / state right after the conversion |
 
 The adapters' options:
 - `rank`: an integer, or a fraction of min(K, N).
@@ -24,13 +45,9 @@ The adapters' options:
 - `gmetric=DIR`: fit the adapter subspace in the output-sensitivity metric G⊗H instead of H alone (G from
   `ttfconv.tools.kfac --dump-g`).
 - `svd=rand`: the adapter subspace by randomized SVD (the 27B default; the full SVD's fit to ±0.001).
-- `ttf_rank=R`: the adapter factors' own TTF accumulator rank.
+- `ttf_rank=R`: the adapter factors' own TTF accumulator rank (when ttf-core trains them).
 
-The second ternary layer (T2, `t2=`) was removed on 25 Oct: it moved in lockstep with its main layer, and the same bytes
-as adapter rank did better (the results below that use it are from the code before that date).
-
-The adapters are fitted inside the centred streaming conversion (`--convert gptqc`, the default with
-`--convert-stream`); the recipes here set it.
+The adapters are fitted inside the centred streaming conversion (`--method gptqc`, the default).
 
 ## Install
 
@@ -39,8 +56,8 @@ pip install "ttf-ternary[qwen] @ git+https://github.com/oguzeldereli/ttf-ternary
 pip install -e .                 # this repository (package ttfconv)
 ```
 
-You need a CUDA GPU for conversion and training (the ternary kernels are Triton). The tests in `tests/` run on the CPU
-(`pytest`).
+You need a CUDA GPU for conversion (the ternary kernels are Triton). `pytest` runs the tests (`-m "not gpu"` for the
+CPU ones).
 
 ## Quickstart: Qwen3.5-0.8B
 
@@ -48,25 +65,17 @@ The data files are uint32 token streams in Qwen's vocabulary (ttf-core: `scripts
 
 ```bash
 M=models/Qwen3.5-0.8B-Base
-# 1. (optional) the output-sensitivity metric for the adapter fit: ~2 min, ~9 GB GPU, ~5 GB of files
-python -m ttfconv.tools.kfac --model $M --data data/train.bin --val data/val.bin --stats-only --dump-g runs/g08 \
-    --ncal 16 --seq 1024 --chunk 1 --out runs/g08.json
-
-# 2. convert, then 1000 steps of recovery with distillation from the fp model (RTX 4070: ~16.5 s per step)
-python -m ttf.train --recipe recipes/qwen-0.8b.toml --init-hf $M --teacher $M --data data/train.bin \
-    --ext ttfconv.fold --ext ttfconv.cd:sweeps=1 --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,gmetric=runs/g08 \
-    --out-dir runs/q08
+# convert (fold + rank-16 float adapters from the rounding error's SVD), score 16 wiki windows
+python -m ttfconv.convert --model $M --data data/cal.bin --out runs/q08_conv --ext ttfconv.fold --svd-rank 16 \
+    --eval wiki@data/val.bin@16@2048
+# optional: recovery training with ttf-core from the converted checkpoint (same structural plug-ins, --adapter-rank
+# for the float adapters)
+python -m ttf.train --recipe recipes/qwen-0.8b.toml --init-hf $M --init-ckpt runs/q08_conv/ckpt.pt --teacher $M \
+    --data data/train.bin --ext ttfconv.fold --adapter-rank 16 --out-dir runs/q08
 ```
 
-Conversion only, then score and save (no training):
-
-```bash
-python -m ttf.train --recipe recipes/qwen-0.8b.toml --init-hf $M --data data/train.bin --kd-weight 0 --teacher "" \
-    --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1 \
-    --ext "ttfconv.finish:out=runs/q08_conv,eval=wiki@data/val.bin@16@2048" --out-dir runs/q08_conv_run
-```
-
-To resume, pass the same `--ext` list without `finish`; the structure is rebuilt and the conversion skipped.
+A checkpoint converted with `--fine` carries the extra digits; it loads with `ttfconv.model.load_converted`, not in
+ttf-core's trainer.
 
 ## Results (Qwen3.5-0.8B, wiki / chat / mix held-out loss)
 

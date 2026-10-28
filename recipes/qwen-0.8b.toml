@@ -4,9 +4,6 @@
 # 16.5 s per step on an RTX 4070 (32k tokens: 16 micro-batches of one 2048-token sequence).
 #   python -m ttf.train --recipe recipes/qwen-0.8b.toml --init-hf $M --teacher $M --data DATA.bin --ext ... --out-dir runs/q08
 mode = "ttf"
-convert = "gptqc"
-convert-stream = true
-calib = 64
 data-dtype = "u32"
 seq-len = 2048
 batch-size = 1

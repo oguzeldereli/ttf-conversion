@@ -50,7 +50,7 @@ def test_ranks_and_bytes():
 
 
 def test_adapter_fit_removes_energy():
-    from ttf.hf_init import ternarize, ternarize_gptq
+    from ttfconv.gptq import ternarize, ternarize_gptq
     from ttf.layers import KernelTernaryLinear
     from ttfconv.adapters import fit_tadapt
     torch.manual_seed(0)

@@ -17,17 +17,9 @@ import torch.nn.functional as F
 
 
 def build(model_path, exts):
-    from ttf import ext as X
-    from ttf.qwen import build_qwen
-    from ttf.layers import KernelTernaryLinear
-    X.load(exts)
-    mk = lambda i, o: KernelTernaryLinear(i, o, 8, beta=True)
-    m, sw = build_qwen(model_path, "kernel", grad_checkpoint=False, device="cuda", make_linear=mk)
-    for f in X.having("build"):
-        sw = f(m, sw, mk, print)
-    from ttf.layers import enable_rc_scales
-    enable_rc_scales(m)                      # (the trainer's --rc-scale, on in every conversion recipe)
-    return m.cuda().eval()
+    from ttfconv.convert import build_model, load_plugins
+    m, _ = build_model(model_path, "cuda", load_plugins(exts))
+    return m.eval()
 
 
 def sdict(p):

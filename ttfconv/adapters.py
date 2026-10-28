@@ -5,7 +5,8 @@ the adapter to what rounding left, R = W - a c T: the rank-r SVD of R in the out
 moment), D by GPTQ under H, U by least squares and GPTQ under D H D^T; with alt = n, n rounds of alternating refit
 (D by least squares given the quantised U, then U again), the best kept.
 State-dict keys: .lin (the main ternary layer), .ad.0 (down), .ad.1 (up).
-Needs the centred streaming conversion (--convert gptqc --convert-stream, the default): the fit runs in its hooks.
+Needs the centred streaming conversion (python -m ttfconv.convert --method gptqc, the default): the fit runs in its
+fitted hook.
   --ext ttfconv.adapters:rank=0.2,alt=1[,ttf_rank=64][,svd=rand][,gmetric=DIR]
 prop=1: calibration stream through the adapted layers (default 0, the wip behaviour).
 rank: an int, or a fraction of min(K, N) (rounded to a multiple of 8, at least 8). alt must be given (0 = the fit before
@@ -139,7 +140,7 @@ class Adapters:
     def fitted(self, name, q, W, Hc, mu, T, a, c):
         if not isinstance(q, QTad):
             return
-        from ttf.hf_init import ternarize, ternarize_gptq
+        from ttfconv.gptq import ternarize, ternarize_gptq
         R = W - a[:, None] * c[None, :] * T.float()
         G = None
         if self.gdir:
@@ -153,7 +154,7 @@ class Adapters:
         n_ad = sum(isinstance(q, QTad) for q in model.modules())
         if n_ad and not self.errs:
             raise SystemExit("ttfconv.adapters: no adapter was fitted: the fit runs only in the centred streaming "
-                             "conversion (--convert gptqc, --convert-stream)")
+                             "conversion (ttfconv.convert --method gptqc)")
         if self.errs:
             log(f"ttfconv.adapters: {len(self.errs)} fitted, output-space error of what the ternary layer left, after "
                 f"the adapter {sum(self.errs) / len(self.errs):.4f} (relative)")

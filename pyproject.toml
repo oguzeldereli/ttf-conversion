@@ -20,3 +20,4 @@ include = ["ttfconv*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["gpu: needs a CUDA GPU (Triton kernels)"]

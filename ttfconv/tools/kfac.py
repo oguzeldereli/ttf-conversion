@@ -171,7 +171,7 @@ def main():
     ap.add_argument("--stats-only", action="store_true")
     a = ap.parse_args()
     from transformers import AutoModelForCausalLM
-    from ttf.hf_init import ternarize, ternarize_gptq
+    from ttfconv.gptq import ternarize, ternarize_gptq
     dev = "cuda"; t0 = time.time()
     hf = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16).to(dev).eval()
     for p in hf.parameters():
