@@ -36,7 +36,7 @@ Training starts from a converted checkpoint (ttf-core does not convert):
 
 ```bash
 CORE=path/to/ttf-ternary M=models/qw27 DATA=data/calib.bin OUT=runs/q27_start bash scripts/convert27.sh
-torchrun --nproc_per_node 2 -m ttf.train --recipe recipes/qwen-27b.toml --init-hf $M --init-ckpt runs/q27_start/ckpt.pt \
+torchrun --nproc_per_node 2 -m ttf.train --recipe recipes/qwen-27b.toml --arch-hf $M --init-ckpt runs/q27_start/ckpt.pt \
   --resume --data DATA.bin --pipe --kd-cache KD_DIR --steps 7750 \
   --ext ttfconv.fold --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand --out-dir runs/q27
 ```

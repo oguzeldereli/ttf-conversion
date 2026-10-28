@@ -70,9 +70,16 @@ python -m ttfconv.convert --model $M --data data/cal.bin --out runs/q08_conv --e
     --eval wiki@data/val.bin@16@2048
 # optional: recovery training with ttf-core from the converted checkpoint (same structural plug-ins, --adapter-rank
 # for the float adapters)
-python -m ttf.train --recipe recipes/qwen-0.8b.toml --init-hf $M --init-ckpt runs/q08_conv/ckpt.pt --teacher $M \
+python -m ttf.train --recipe recipes/qwen-0.8b.toml --arch-hf $M --init-ckpt runs/q08_conv/ckpt.pt --teacher $M \
     --data data/train.bin --ext ttfconv.fold --adapter-rank 16 --out-dir runs/q08
 ```
+
+A Llama-style checkpoint (the 110M models) converts with the same command (`ttfconv.llama`, not streamed; uint16
+data: `--data-dtype u16`); it trains with `ttf.train --arch-hf $M --init-ckpt OUT/ckpt.pt`.
+
+`scripts/analysis` and `scripts/quant` hold the conversion studies that left ttf-core on 28 Oct 2026; they find
+ttf-core through `$TTF_CORE` (default `../ttf-core`). `scripts/legacy` keeps three Qwen checks that need ttf-core
+d5f6256 (see its README).
 
 A checkpoint converted with `--fine` carries the extra digits; it loads with `ttfconv.model.load_converted`, not in
 ttf-core's trainer.

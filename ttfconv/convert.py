@@ -56,6 +56,8 @@ def main(argv=None):
     ap.add_argument("--svd-rank", type=int, default=0, help="float adapters: the rank-R fit of the rounding error")
     ap.add_argument("--fine", type=int, default=0, help="fine residual grid R (27: |F| <= 100); 0: none")
     ap.add_argument("--act-bits", type=int, default=8)
+    ap.add_argument("--data-dtype", default="u32", choices=["u32", "u16"], help="calibration token width (Llama "
+                    "110M data: u16)")
     ap.add_argument("--eval", default="", help="NAME@FILE@N@STRIDE[+...] fixed windows scored after the conversion")
     ap.add_argument("--seed", type=int, default=1337)
     ap.add_argument("--device", default="cuda")
@@ -65,9 +67,13 @@ def main(argv=None):
     log = lambda s: print(s, flush=True)
     t0 = time.time()
     from ttf.layers import KernelTernaryLinear
+    from ttf.qwen import is_qwen35
     from .stream import convert_streaming, base
     plugins = load_plugins(a.ext)
     dev = torch.device(a.device)
+    if not is_qwen35(a.model):
+        return convert_llama_main(a, plugins, dev, log, t0)
+    assert a.data_dtype == "u32", "Qwen: uint32 tokens"
     model, sw = build_model(a.model, dev, plugins, a.act_bits, log=log)
     if a.fine:
         from .fine import enable_fine
@@ -110,6 +116,41 @@ def main(argv=None):
             name, f, n, stride = e.split("@")
             res[name] = score(model, f, int(n), int(stride), dev)
             log(f"eval {name}: {res[name]:.4f} ({n} windows)")
+    json.dump(res, open(os.path.join(a.out, "result.json"), "w"), indent=1)
+
+
+def convert_llama_main(a, plugins, dev, log, t0):
+    """a Llama-style checkpoint (110M) into ttf-core's BitTransformer: not streamed (the fp model's calibration pass,
+    then every linear rounded; ttfconv.llama)"""
+    from ttf.hf_load import model_config_from_hf
+    from ttf.layers import build_kernel_transformer, enable_rc_scales, KernelTernaryLinear
+    from .llama import calib_hessians, convert_llama
+    assert not plugins and not a.fine, "Llama conversion: no plug-ins, no fine residual"
+    mc = model_config_from_hf(a.model, max_seq_len=a.seq)
+    mc.act_bits = a.act_bits
+    model = build_kernel_transformer(mc, grad_checkpoint=False, beta=True).to(dev)
+    enable_rc_scales(model)
+    hess = calib_hessians(a.model, a.data, a.calib, a.seq, dev, dtype_u32=a.data_dtype == "u32", log=log) \
+        if a.method in ("gptq", "gptqc") else None
+    fits = convert_llama(model, a.model, a.method, hess, a.svd_rank, log=log)
+    del hess
+    if a.svd_rank:
+        for m in model.modules():
+            if isinstance(m, KernelTernaryLinear):
+                m.enable_lowrank_mag("add", a.svd_rank)
+        with torch.no_grad():
+            for (i, name), (A, B) in fits.items():
+                blk = model.layers[i]
+                l = getattr(blk.attn if name in ("wq", "wk", "wv", "wo") else blk.ffn, name)
+                l.mag_A.copy_(A.to(dev)); l.mag_B.copy_(B.to(dev))
+        log(f"float adapters rank {a.svd_rank}: {len(fits)} set to their fit")
+    ck = os.path.join(a.out, "ckpt.pt")
+    torch.save({"model": model.state_dict(), "step": -1, "cfg": mc, "mode": "kernel", "beta": True,
+                "args": {"ttfconv_convert": vars(a)}, "ttfconv": {"svd_rank": a.svd_rank, "method": a.method}},
+               ck + ".tmp")
+    os.replace(ck + ".tmp", ck)
+    res = {"seconds": time.time() - t0}
+    log(f"saved {ck} ({os.path.getsize(ck) / 1e9:.2f} GB) after {res['seconds']:.0f} s")
     json.dump(res, open(os.path.join(a.out, "result.json"), "w"), indent=1)
 
 
