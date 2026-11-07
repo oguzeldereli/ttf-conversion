@@ -77,8 +77,10 @@ python -m ttf.train --recipe recipes/qwen-0.8b.toml --arch-hf $M --init-ckpt run
 A Llama-style checkpoint (the 110M models) converts with the same command (`ttfconv.llama`, not streamed; uint16
 data: `--data-dtype u16`); it trains with `ttf.train --arch-hf $M --init-ckpt OUT/ckpt.pt`.
 
-`scripts/analysis` and `scripts/quant` hold the conversion studies that left ttf-core on 28 Oct 2026; they find
-ttf-core through `$TTF_CORE` (default `../ttf-core`). `scripts/legacy` keeps three Qwen checks that need ttf-core
+`scripts/analysis` and `scripts/quant` hold the conversion studies that left ttf-core on 28 Oct 2026 (they find
+ttf-core through `$TTF_CORE`, default `../ttf-core`) and the fp-side tools: `prep_fp.py` (move the fp model toward its
+rounding before converting, proximal or QuantNoise, under a loss-rise budget) and `fold_llama.py` (the gain fold and
+residual rotation for the Llama layout). `scripts/legacy` keeps three Qwen checks that need ttf-core
 0ef62dd (see its README).
 
 A checkpoint converted with `--fine` carries the extra digits; it loads with `ttfconv.model.load_converted`, not in
@@ -111,6 +113,22 @@ After 1000 recovery steps (θ16, accumulator rank 256, KD 0.75, 32k tokens per s
 See [docs/CONVERT_27B.md](docs/CONVERT_27B.md). The conversion streams one decoder layer at a time from the safetensors.
 `recipes/qwen-27b.toml` is the recovery run on two 96 GB cards (rank 1536, 27.0 s per step as a two-stage pipeline);
 with the TTF state in host memory the structure also trains on a 24 GB card (21.7 GiB peak measured at rank 256).
+
+## Qwen3.8-Flash-Next (MoE)
+
+`ttfconv.q38.convert` turns every routed expert (512 per layer) and dense projection into trits, layer by layer on one
+GPU: ternary GPTQ on the centred input covariance (act-order), ALS row / column scales, the input mean folded into a
+bias, a rank-16 ternary adapter. `ttfconv.q38.teacher` writes the KD cache (top 64 + 64 sampled tail per position).
+The result trains with ttf-core's `ttf.q38.train` (layer-major, model and TTF state in host memory); the whole
+pipeline and the recipe are in ttf-core's docs/Q38.md. `scripts/q38`: the slim base checkpoint (`slim.py` from a
+download, `hf_fetch.py` by HTTP range reads), the PLE n-gram table's compressibility (`ple_probe.py`), the loss of
+compressed tables (`ple_loss.py`) and the stored prune1 + pq4.256 table (`ple_pq_build.py`, 7.95 GB instead of
+51.2 GB). Check: `tests/checks/q38_pipeline.py` (GPU, needs ttf-core's `ttf.q38` and transformers >= 5.19).
+
+## Examples
+
+`examples/asr`: a ternary Parakeet TDT 0.6B speech recogniser by the same centred ternary GPTQ (`ttfconv.gptq`) and
+KD, WER on the Open ASR leaderboard test sets.
 
 ## Tools (`ttfconv/tools`)
 
