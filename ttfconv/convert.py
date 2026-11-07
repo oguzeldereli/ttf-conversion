@@ -54,9 +54,6 @@ def main(argv=None):
     ap.add_argument("--seq", type=int, default=2048)
     ap.add_argument("--mb", type=int, default=4, help="calibration micro-batch")
     ap.add_argument("--svd-rank", type=int, default=0, help="float adapters: the rank-R fit of the rounding error")
-    ap.add_argument("--prop-svd", action="store_true",
-                    help="with --svd-rank: the calibration stream runs through each fitted float adapter (the layers "
-                         "above are rounded for the inputs they will see; off: the bare ternary layer, as before)")
     ap.add_argument("--fine", type=int, default=0, help="fine residual grid R (27: |F| <= 100); 0: none")
     ap.add_argument("--act-bits", type=int, default=8)
     ap.add_argument("--data-dtype", default="u32", choices=["u32", "u16"], help="calibration token width (Llama "
@@ -84,7 +81,7 @@ def main(argv=None):
             enable_fine(base(q), a.fine)
         log(f"fine residual: grid {a.fine} under {len(sw)} ternary linears")
     fits, st = convert_streaming(model, a.model, sw, a.data, plugins, a.method, a.calib, a.seq, a.mb, dev,
-                                 svd_rank=a.svd_rank, fine=bool(a.fine), prop_svd=a.prop_svd, log=log)
+                                 svd_rank=a.svd_rank, fine=bool(a.fine), log=log)
     if a.svd_rank:              # the float adapters (ttf-core's enable_lowrank_mag 'add'), set to the fit
         nf = 0
         for m in model.modules():

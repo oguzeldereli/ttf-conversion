@@ -95,7 +95,7 @@ def get_tensor(files, name, dev):
 
 @torch.no_grad()
 def convert_streaming(m, path, swapped, data_path, plugins=(), method="gptqc", n_seq=64, seq=2048, mb=4, dev="cuda",
-                      svd_rank=0, fine=False, prop_svd=False, log=print):
+                      svd_rank=0, fine=False, log=print):
     """for each decoder layer in turn: its full-precision linears put in place (read lazily from the safetensors), the
     calibration activations (inputs as produced by the already converted layers below) run through it to collect each
     linear's input second moment, the linears rounded (GPTQ or ALS) into the ternary layers, and the activations go on
@@ -103,10 +103,7 @@ def convert_streaming(m, path, swapped, data_path, plugins=(), method="gptqc", n
     activations (n_seq x seq x d bf16).
     svd_rank R: the rank-R float adapter fit of the rounding error (returned as {name: (A, B)}; the caller makes the
     adapters). fine: the layers are FineTernaryLinear (ttfconv.fine.enable_fine) and get the GPTQ fine residual of
-    what the trits and that adapter fit left. prop_svd: the float adapter is set on the layer as soon as it is fitted, so
-    the calibration stream (and so the layers above) sees it; without it the stream passes the bare ternary layer and
-    the adapters are set by the caller afterwards (the layers above are then rounded for inputs they will not see).
-    Returns ({name: (A, B)}, stats)."""
+    what the trits and that adapter fit left. Returns ({name: (A, B)}, stats)."""
     files = safetensor_index(path)
     hf = m.hf
     wrapped = {n: q for n, q in swapped.items() if base(q) is not q}   # wrappers: their ternary layer is rounded and
@@ -182,10 +179,6 @@ def convert_streaming(m, path, swapped, data_path, plugins=(), method="gptqc", n
             if svd_rank and method in ("gptq", "gptqc"):          # the float adapter: the best rank-R part of the
                 fit, sh = mag_svd_fit(Wl, T, a, c, beta, Hc_, svd_rank)   # rounding error the trits (and adapter) left
                 fits[n] = fit; kept.append(sh)
-                if prop_svd:                            # (the caller's enable + copy later sets the same values again)
-                    lin.enable_lowrank_mag("add", svd_rank)
-                    with torch.no_grad():
-                        lin.mag_A.copy_(fit[0].to(lin.mag_A.device)); lin.mag_B.copy_(fit[1].to(lin.mag_B.device))
             if fine:                                    # what the trits and the adapters left, onto the fine grid
                 from .fine import gptq_fine
                 E_ = Wl - a[:, None] * c[None, :] * T.float()
