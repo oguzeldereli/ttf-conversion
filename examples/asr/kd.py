@@ -20,6 +20,7 @@ from common import EVAL_SETS, Normalizer, batches, decode_audio, encode, eval_ro
     store, stt, wer
 from student import calibrate, convert, skeleton, tern_layers
 from ttf.layers import DX_MODE, FACTORED, FUSED_LAYER
+from ttf.schedule import theta_at
 from ttf.update import ts_layer, ts_step
 
 TRACK = ("librispeech/test.other", "ami", "earnings22", "voxpopuli")
@@ -66,7 +67,9 @@ def main():
     ap.add_argument("--lr", type=float, default=1.5e-3)
     ap.add_argument("--min-lr", type=float, default=1.5e-4)
     ap.add_argument("--float-lr-mult", type=float, default=0.1, help="for the teacher's float matrices (LSTM, convs, embedding)")
-    ap.add_argument("--theta", type=float, default=16.0)
+    ap.add_argument("--theta", type=float, default=16.0, help="the base threshold (ttf.train --ttf-theta)")
+    ap.add_argument("--theta-start", type=float, default=64.0, help="theta at step 0, down to --theta over the warmup")
+    ap.add_argument("--theta-end", type=float, default=80.0, help="theta at the last step (start = end = theta: constant)")
     ap.add_argument("--tau", type=float, default=1000.0)
     ap.add_argument("--rank", type=int, default=1024)
     ap.add_argument("--sec", type=float, default=300.0, help="seconds of audio per step")
@@ -193,7 +196,8 @@ def main():
         lr = lr_at(step)
         for g in opt.param_groups:
             g["lr"] = lr * g["mult"]
-        cfg["lr_ratio"] = max((lr / a.lr) ** 0.75, 0.0)
+        # the core theta schedule in rescale form, as ttf.train (before 7 Nov: the step (lr / peak)^0.75)
+        cfg["lr_ratio"] = a.theta / theta_at(step / a.steps, a.theta, a.theta_start, a.theta_end, a.warmup / a.steps)
         cfg["progress"] = step / a.steps
         cfg["step"], cfg["start"], cfg["micro"], cfg["vdiag"] = step, 0, 1, False
         FACTORED[0] = True
