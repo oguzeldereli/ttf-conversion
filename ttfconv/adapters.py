@@ -15,6 +15,7 @@ rank: an int, or a fraction of min(K, N) (rounded to a multiple of 8, at least 8
 import torch
 import torch.nn as nn
 from .spec import parse
+from .gptq import svd_lowrank_safe
 
 
 def rank_of(K, N, r):
@@ -58,8 +59,24 @@ def top_svd(A, r, mode="full", over=None, niter=8):
         U, S, Vh = torch.linalg.svd(A, full_matrices=False)
         return U[:, :r], S[:r], Vh[:r]
     q = min(r + (over if over is not None else max(16, r // 2)), *A.shape)
-    U, S, V = torch.svd_lowrank(A, q=q, niter=niter)
+    U, S, V = svd_lowrank_safe(A, q=q, niter=niter)
     return U[:, :r], S[:r], V[:, :r].T
+
+
+def _chol_damped(H, K, dev):
+    """L with L L^T = H + d mean(diag H) I, d = 1e-6, else the first of 1e-5 .. 1e-2 that factors. After ttfconv.fold
+    the input metric can have near-null directions that 1e-6 relative damping in float32 does not cover (Qwen3.5-0.8B,
+    6 Nov: "the leading minor of order 1020 is not positive-definite"); 1e-2 is GPTQ's usual damping. Matrices that
+    factor at 1e-6 are fitted exactly as before."""
+    m = torch.diagonal(H).mean()
+    for d in (1e-6, 1e-5, 1e-4, 1e-3, 1e-2):
+        L, info = torch.linalg.cholesky_ex(H + d * m * torch.eye(K, device=dev, dtype=H.dtype))
+        if int(info) == 0:
+            if d > 1e-6:
+                print(f"ttfconv.adapters: H {tuple(H.shape)} not positive-definite at damping 1e-6; fitted at {d:g}",
+                      flush=True)
+            return L
+    raise torch.linalg.LinAlgError(f"ttfconv.adapters: H {tuple(H.shape)} not positive-definite at damping 1e-2")
 
 
 @torch.no_grad()
@@ -68,8 +85,7 @@ def fit_tadapt(ad, R, H, alt, ternarize, gptq, G=None, svd="full"):
     and the per-round errors. G (N x N, optional): D's subspace from the SVD of L_G^T R L_H instead of R L_H, and the
     alternating refit of D weighted by G (the up factor's least squares does not depend on G)"""
     r = ad[0].N; dev = R.device; K = R.shape[1]
-    Hd = H + 1e-6 * torch.diagonal(H).mean() * torch.eye(K, device=dev)
-    Lc = torch.linalg.cholesky(Hd)
+    Lc = _chol_damped(H, K, dev)
     if G is None:
         U, S, Vh = top_svd(R @ Lc, r, svd)
     else:

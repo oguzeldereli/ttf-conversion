@@ -6,6 +6,19 @@ on the layer."""
 import torch
 
 
+def svd_lowrank_safe(A, q, niter):
+    """torch.svd_lowrank, or the exact float64 SVD on the host when it fails to converge (Qwen3.5-0.8B --adapter-init
+    svd, 31 Oct: "linalg.svd: The algorithm failed to converge because the input matrix is ill-conditioned or has too
+    many repeated singular values"); returns U, S, V as svd_lowrank does"""
+    try:
+        return torch.svd_lowrank(A, q=q, niter=niter)
+    except torch.linalg.LinAlgError as e:
+        print(f"ttfconv: svd_lowrank failed on {tuple(A.shape)} (non-finite {int((~torch.isfinite(A)).sum())}): "
+              f"{str(e).splitlines()[0][:100]}; exact float64 SVD on the host", flush=True)
+        U, S, Vh = torch.linalg.svd(torch.nan_to_num(A.detach().double().cpu()), full_matrices=False)
+        return (U[:, :q].to(A.device, A.dtype), S[:q].to(A.device, A.dtype), Vh[:q].T.to(A.device, A.dtype))
+
+
 @torch.no_grad()
 def _row_grid(W, grid=torch.linspace(0.3, 2.0, 35)):
     """per-row scale a_i and trits T minimising |W_i - a_i T_i|^2: for each candidate threshold-scale s = g mean|W_i|,
@@ -128,7 +141,7 @@ def mag_svd_fit(W, T, a, c, beta, Hc, r):
     tot = float(torch.linalg.vector_norm(M)) ** 2
     with torch.random.fork_rng(devices=[M.device] if M.is_cuda else []):   # its own draws: the global RNG (stochastic
         torch.manual_seed(0)                                               # rounding, later options) is left as it was
-        U, S, V = torch.svd_lowrank(M, q=min(r + 16, *M.shape), niter=8)
+        U, S, V = svd_lowrank_safe(M, q=min(r + 16, *M.shape), niter=8)
     del M
     Vr = V[:, :r].double()
     B = torch.linalg.solve_triangular(L.T, Vr, upper=True) if Linv_t is None else Linv_t @ Vr

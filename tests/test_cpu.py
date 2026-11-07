@@ -166,3 +166,18 @@ def test_adapter_ctl():
         assert torch.equal(y, y0 if mode == "frozen" else q.lin(x))
     with pytest.raises(AssertionError):
         ctl("mode=fast")
+
+
+def test_chol_damped_escalates_on_a_singular_metric():
+    """a metric with a null direction (after the fold) factors at a larger damping instead of failing (6 Nov, 0.8B)"""
+    import torch
+    from ttfconv.adapters import _chol_damped
+    g = torch.Generator().manual_seed(0)
+    X = torch.randn(64, 8, generator=g)
+    H = X @ X.T                                    # rank 8 of 64: not positive-definite at 1e-6 in float32
+    H[0, :] = 0; H[:, 0] = 0
+    L = _chol_damped(H, 64, H.device)
+    assert torch.isfinite(L).all()
+    Hp = torch.eye(64) * 3.0 + 0.1                 # well conditioned: exactly the 1e-6 damping as before
+    L2 = _chol_damped(Hp, 64, Hp.device)
+    assert torch.allclose(L2 @ L2.T, Hp + 1e-6 * torch.diagonal(Hp).mean() * torch.eye(64), atol=1e-5)
