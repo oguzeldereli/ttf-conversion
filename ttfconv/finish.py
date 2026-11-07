@@ -61,6 +61,9 @@ def sizes(m):
 @torch.no_grad()
 def score(m, f, n, st, dev):
     d = np.memmap(f, dtype=np.uint32, mode="r"); ce = nt = 0
+    if (n - 1) * st + 2049 > len(d):   # (a window past the end was scored short, then crashed the model on 0 tokens)
+        raise SystemExit(f"eval {f}: {n} windows of 2048 at stride {st} need {(n - 1) * st + 2049} tokens, the file has "
+                         f"{len(d)} (at most {max(0, (len(d) - 2049) // st + 1)} windows)")
     for i in range(n):
         t = torch.from_numpy(np.asarray(d[i * st:i * st + 2049], dtype=np.int64)).to(dev)
         with torch.autocast("cuda", dtype=torch.bfloat16):
