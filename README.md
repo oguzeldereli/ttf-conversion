@@ -49,36 +49,65 @@ The adapters' options:
 
 The adapters are fitted inside the centred streaming conversion (`--method gptqc`, the default).
 
+## Released models
+
+Made with this conversion and TTF recovery training; GGUF files that [ttf-home](https://github.com/oguzeldereli/ttf-home)
+runs:
+
+| model | file | GSM8K (first 200) | HumanEval |
+|---|---|---|---|
+| [ttf-Qwen3.8-27B-GGUF](https://huggingface.co/oguzeldereli/ttf-Qwen3.8-27B-GGUF) | 10.2 GB | 0.895 (full precision 0.895) | 0.841 (0.933) |
+| [ttf-Qwen3.8-Flash-Next-GGUF](https://huggingface.co/oguzeldereli/ttf-Qwen3.8-Flash-Next-GGUF) | 40.4 GB | 0.905 (FP8 0.905) | 0.848 (0.927) |
+
 ## Install
 
+Linux with an NVIDIA GPU (the ternary kernels are Triton), Python 3.11+, PyTorch 2.13+. The data scripts live in
+ttf-ternary, so clone both:
+
 ```bash
-pip install "ttf-ternary[qwen] @ git+https://github.com/oguzeldereli/ttf-ternary"
-pip install -e .                 # this repository (package ttfconv)
+git clone https://github.com/oguzeldereli/ttf-ternary
+git clone https://github.com/oguzeldereli/ttf-conversion
+pip install -e "ttf-ternary[qwen,data]" -e ttf-conversion
 ```
 
-You need a CUDA GPU for conversion (the ternary kernels are Triton). `pytest` runs the tests (`-m "not gpu"` for the
-CPU ones).
+`pytest -q -m "not gpu"` in `ttf-conversion` runs the CPU tests; `pytest -q` runs them all on the GPU machine.
 
-## Quickstart: Qwen3.5-0.8B
+## Quickstart: Qwen3.5-0.8B on one 16 GB GPU
 
-The data files are uint32 token streams in Qwen's vocabulary (ttf-core: `scripts/quant/retok.py`).
+The data files are uint32 token streams in Qwen's vocabulary. Below, 20M tokens of English Wikipedia are tokenized
+with Llama's tokenizer (ttf-ternary's `prep_wiki.py`) and re-tokenized for Qwen.
 
 ```bash
+hf download Qwen/Qwen3.5-0.8B-Base --local-dir models/Qwen3.5-0.8B-Base
 M=models/Qwen3.5-0.8B-Base
-# convert (fold + rank-16 float adapters from the rounding error's SVD), score 16 wiki windows
-python -m ttfconv.convert --model $M --data data/cal.bin --out runs/q08_conv --ext ttfconv.fold --svd-rank 16 \
-    --eval wiki@data/val.bin@16@2048
-# optional: recovery training with ttf-core from the converted checkpoint (same structural plug-ins, --adapter-rank
-# for the float adapters)
-python -m ttf.train --recipe recipes/qwen-0.8b.toml --arch-hf $M --init-ckpt runs/q08_conv/ckpt.pt --teacher $M \
-    --data data/train.bin --ext ttfconv.fold --adapter-rank 16 --out-dir runs/q08
+python ttf-ternary/scripts/data/prep_wiki.py 2e7 --tokenizer llama --val_tokens 1000000 --out_prefix data/wiki
+python ttf-ternary/scripts/quant/retok.py data/wiki_train.bin data/qw_train.bin --target $M
+python ttf-ternary/scripts/quant/retok.py data/wiki_val.bin data/qw_val.bin --target $M
+
+# convert: norm gains folded + a Hadamard rotation of the residual stream, centred ternary GPTQ, one coordinate-descent
+# sweep, ternary low-rank adapters of rank 0.2; 16 Wikipedia windows scored at the end (OUT/result.json)
+python -m ttfconv.convert --model $M --data data/qw_train.bin --out runs/q08_conv \
+    --ext ttfconv.fold --ext ttfconv.cd:sweeps=1 --ext "ttfconv.adapters:rank=0.2,alt=1,prop=1" \
+    --eval wiki@data/qw_val.bin@16@2048
+
+# recovery: 1000 TTF steps (32k tokens each) with distillation from the original model, the same plug-ins
+python -m ttf.train --recipe ttf-conversion/recipes/qwen-0.8b.toml --arch-hf $M --init-ckpt runs/q08_conv/ckpt.pt \
+    --teacher $M --data data/qw_train.bin --val data/qw_val.bin --batch-size 2 --accum 8 \
+    --ext ttfconv.fold --ext ttfconv.cd:sweeps=1 --ext "ttfconv.adapters:rank=0.2,alt=1,prop=1" --out-dir runs/q08
 ```
+
+`--batch-size 2 --accum 8` is the fastest shape on a 16 GB card. On a 12 GB card, keep the recipe's `1 x 16`. [Results](#results-qwen35-08b-wiki--chat--mix-held-out-loss)
+has this recipe on our larger training mix. With 20M tokens, 1000 steps (32M tokens) read some windows twice. Export the result to GGUF and chat with it in
+[ttf-home](https://github.com/oguzeldereli/ttf-home) (`ttf export runs/q08/ckpt.pt q08.gguf --base $M`).
+
+A conversion with rank-16 float adapters fitted to the rounding error instead (`--svd-rank 16`, no adapters plug-in)
+trains with `--adapter-rank 16`.
 
 A Llama-style checkpoint (the 110M models) converts with the same command (`ttfconv.llama`, not streamed; uint16
 data: `--data-dtype u16`); it trains with `ttf.train --arch-hf $M --init-ckpt OUT/ckpt.pt`.
 
-`scripts/analysis` and `scripts/quant` hold the conversion studies that left ttf-core on 28 Oct 2026 (they find
-ttf-core through `$TTF_CORE`, default `../ttf-core`) and the fp-side tools: `prep_fp.py` (move the fp model toward its
+`scripts/analysis` and `scripts/quant` hold the conversion studies (they find ttf-ternary through `$TTF_CORE`,
+default `../ttf-core`) and the fp-side tools: `prep_fp.py` (move the fp model toward its
 rounding before converting, proximal or QuantNoise, under a loss-rise budget) and `fold_llama.py` (the gain fold and
 residual rotation for the Llama layout). `scripts/legacy` keeps three Qwen checks that need ttf-core
 0ef62dd (see its README).
