@@ -55,21 +55,24 @@ Measured so far:
 
 [ttf-Qwen3.8-27B-GGUF](https://huggingface.co/oguzeldereli/ttf-Qwen3.8-27B-GGUF) came from a shorter recipe than the
 run above:
-- **Conversion** (`scripts/convert27.sh`):
-  - fold;
-  - one coordinate-descent sweep;
-  - ternary adapters `rank=0.2,alt=1,prop=1,svd=rand`;
-  - rank-16 float adapters (`SVD=16`);
-  - the embedding and head at 4 bits (`EMBQ=4,4`).
+- **Conversion**: `python -m ttfconv.convert` on 64 calibration windows of 2048 tokens from the post-training mix,
+  with `--svd-rank 16` (rank-16 float adapters) and these plug-ins:
+  ```
+  --ext ttfconv.fold --ext ttfconv.cd:sweeps=1 --ext ttfconv.adapters:rank=0.2,alt=1,prop=1,svd=rand
+  --ext ttfconv.embq:emb=4,head=4
+  ```
 - **Recovery**: 2200 steps of 32k tokens (72M), distillation only (`--kd-weight 1`) from a cached teacher sample.
   - The trits of the main layers and of the ternary adapters are frozen
     (`--ext ttfconv.adapter_ctl:mode=frozen,main=frozen`).
   - The rank-16 float adapters, the scales and the norms train at lr 1e-4 (cosine to 1e-5, warmup 100).
   - The embedding and head stay at their 4-bit conversion.
-  - The data is a post-training mix (ttf-ternary `scripts/quant/sft_mix.py`).
+  - The data is a post-training mix (ttf-ternary `scripts/quant/sft_mix.py`; its instruction part decontaminated
+    against the benchmarks by 13-word n-grams) plus multilingual web text and general chat.
+  - `recipes/qwen-27b.toml` otherwise (θ16, accumulator rank 1536 in bf16), 1 x 8 micro-batches on each of two GPUs
+    (data parallel).
 
-GSM8K (first 200) 0.895 against 0.895 for the full-precision model, HumanEval 0.841 (0.933), IFEval strict (first
-200) 0.735 (0.787).
+The GGUF in llama.cpp (chat template with thinking off, greedy): GSM8K (first 200) 0.895, against 0.895 for the
+full-precision model; HumanEval 0.841 (0.933); IFEval strict (first 200) 0.735 (0.787).
 
 ## What the 0.8B results suggest for 27B
 
