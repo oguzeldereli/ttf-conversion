@@ -51,7 +51,25 @@ Measured so far:
 - two RTX PRO 6000 as a two-stage pipeline at rank 1536: 27.0 s per step, peaks 72.8 / 66.5 GiB;
 - L40S: the conversion structure trains at a 21.7 GiB peak (2 × 8, r256, state on the host); 83 s per step at r256.
 
-The run's results are not in yet.
+## The released model
+
+[ttf-Qwen3.8-27B-GGUF](https://huggingface.co/oguzeldereli/ttf-Qwen3.8-27B-GGUF) came from a shorter recipe than the
+run above:
+- **Conversion** (`scripts/convert27.sh`):
+  - fold;
+  - one coordinate-descent sweep;
+  - ternary adapters `rank=0.2,alt=1,prop=1,svd=rand`;
+  - rank-16 float adapters (`SVD=16`);
+  - the embedding and head at 4 bits (`EMBQ=4,4`).
+- **Recovery**: 2200 steps of 32k tokens (72M), distillation only (`--kd-weight 1`) from a cached teacher sample.
+  - The trits of the main layers and of the ternary adapters are frozen
+    (`--ext ttfconv.adapter_ctl:mode=frozen,main=frozen`).
+  - The rank-16 float adapters, the scales and the norms train at lr 1e-4 (cosine to 1e-5, warmup 100).
+  - The embedding and head stay at their 4-bit conversion.
+  - The data is a post-training mix (ttf-ternary `scripts/quant/sft_mix.py`).
+
+GSM8K (first 200) 0.895 against 0.895 for the full-precision model, HumanEval 0.841 (0.933), IFEval strict (first
+200) 0.735 (0.787).
 
 ## What the 0.8B results suggest for 27B
 
