@@ -67,8 +67,12 @@ ttf-ternary, so clone both:
 ```bash
 git clone https://github.com/oguzeldereli/ttf-ternary
 git clone https://github.com/oguzeldereli/ttf-conversion
+pip install -U pip "setuptools>=68"   # editable installs need setuptools 64+ (PEP 660)
 pip install -e "ttf-ternary[qwen,data]" -e ttf-conversion
 ```
+
+If pip says the build backend "is missing the 'build_editable' hook", it built without isolation (`--no-build-isolation`,
+`PIP_NO_BUILD_ISOLATION` or a pip config) on a setuptools older than 64: `pip install -U "setuptools>=68"` and rerun.
 
 `pytest -q -m "not gpu"` in `ttf-conversion` runs the CPU tests; `pytest -q` runs them all on the GPU machine.
 
