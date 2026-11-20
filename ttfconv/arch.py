@@ -28,6 +28,7 @@ The rules are keyed by the layer's structural signature (the sorted names of its
 import argparse
 import copy
 import itertools
+import re
 import json
 import sys
 
@@ -352,12 +353,32 @@ def _branch_call(br, args, kwargs, x):
     return _first(br(**kw))
 
 
+def _tied(cand):
+    """cand grouped so siblings (names equal up to their numeric indices: experts.0.w1 / experts.7.w1, same axis) are
+    one choice; the subset searches are exponential in the number of choices (per-expert MoE modules: 3E + 1 axes)"""
+    groups = {}
+    for pn, ax in cand:
+        groups.setdefault((re.sub(r"\.\d+(?=\.)", ".*", pn), ax), []).append((pn, ax))
+    return list(groups.values())
+
+
 @torch.no_grad()
 def branch_axes(br, args, kwargs, d, gen):
     """(input axes, output axes) of one branch, or None when no assignment makes it rotation-equivariant"""
+    cand = _axes(br, d)
+    tied = _tied(cand)
+    if len(tied) < len(cand):                              # siblings first; the untied search only if that fails
+        r = _branch_axes(br, args, kwargs, d, gen, tied)
+        if r is not None:
+            return r
+    return _branch_axes(br, args, kwargs, d, gen, [[c] for c in cand])
+
+
+@torch.no_grad()
+def _branch_axes(br, args, kwargs, d, gen, cand):
     x = _arg0(args, kwargs)
     y = _branch_call(br, args, kwargs, x)
-    cand = _axes(br, d)
+    flat = lambda groups: [c for g in groups for c in g]
     params = dict(br.named_parameters())
     orig = {pn: p.detach().clone() for pn, p in params.items()}
 
@@ -369,6 +390,7 @@ def branch_axes(br, args, kwargs, d, gen):
     ins = None
     for k in range(0, min(len(cand), MAX_SEARCH) + 1):     # smallest set of input axes absorbing an input scaling
         for sub in itertools.combinations(cand, k):
+            sub = flat(sub)
             if len({pn for pn, _ in sub}) != len(sub):
                 continue                                   # one input axis per parameter
             for pn, ax in sub:
@@ -382,10 +404,11 @@ def branch_axes(br, args, kwargs, d, gen):
             break
     if ins is None:
         return None
-    rest = [c for c in cand if c not in ins]
+    rest = [g for g in cand if g[0] not in ins]
     Q = random_orth(d, gen)
     for k in range(0, min(len(rest), MAX_SEARCH) + 1):     # the smallest set of further axes to turn with Q
         for sub in itertools.combinations(rest, k):
+            sub = flat(sub)
             for pn, ax in ins + list(sub):
                 params[pn].copy_(_turn(params[pn], ax, Q))
             ok = _close(_branch_call(br, args, kwargs, x @ Q.T), y @ Q.T, 1e-4)

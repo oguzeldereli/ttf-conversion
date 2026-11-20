@@ -14,7 +14,11 @@ from ttfconv.fold import READ_IN, READ_POST, WRITE
 def small(name, **over):
     cfg = hf_class(name, "config")()
     t = cfg.get_text_config() if hasattr(cfg, "get_text_config") else cfg
-    for k, v in dict(hidden_size=256, num_attention_heads=4, num_key_value_heads=2, head_dim=64, **over).items():
+    small_ = dict(hidden_size=256, num_attention_heads=4, num_key_value_heads=2, head_dim=64, intermediate_size=512,
+                  moe_intermediate_size=128, num_experts=4, num_local_experts=4, num_experts_per_tok=2)
+    if getattr(t, "layer_types", None) is None:     # (a per-layer type list fixes the depth: keep it)
+        small_["num_hidden_layers"] = 2           # (the default depth / expert count is minutes on a CPU: MoE 48 x 128)
+    for k, v in dict(small_, **over).items():
         if hasattr(t, k):
             setattr(t, k, v)
     return cfg
